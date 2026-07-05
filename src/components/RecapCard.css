@@ -1,0 +1,450 @@
+/* Shareable recap card. Rendered at exact pixel sizes for 1:1 PNG export.
+   Colors/typography are intentionally neutral — meant to be restyled later. */
+
+.card {
+  --c-bg: #131010;
+  --c-bg2: #1f1712;
+  --c-text: #f3ede2;
+  --c-muted: #a89f92;
+  --c-accent: #e0472d;
+  --c-line: rgba(240, 230, 214, 0.09);
+
+  --c-display: 'Bricolage Grotesque Variable', system-ui, sans-serif;
+  --c-mono: 'Space Mono', ui-monospace, monospace;
+
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--c-bg2), var(--c-bg));
+  color: var(--c-text);
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  text-align: left;
+}
+
+.card *,
+.card *::before,
+.card *::after {
+  box-sizing: border-box;
+}
+
+/* Overlay capture: transparent card + hero so the video composites behind it.
+   The body content sits over the background drawn on the export canvas. */
+.card--overlay {
+  background: transparent;
+}
+
+/* A <video> hero fills the region exactly like the image hero. */
+video.card__hero-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+}
+
+/* ---- Hero ---- */
+.card__hero {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+.card__hero-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+}
+.card__hero-img--empty {
+  background: linear-gradient(135deg, #33271d, #17120f);
+}
+/* Fade photos in once decoded, instead of popping in abruptly. */
+.fade-img {
+  opacity: 0;
+  transition: opacity 0.55s ease;
+}
+.fade-img.is-loaded {
+  opacity: 1;
+}
+/* The hero photo also eases out of a subtle zoom for a bit more life. */
+.card__hero-img.fade-img {
+  transform: scale(1.05);
+  transition: opacity 0.6s ease, transform 0.9s ease;
+}
+.card__hero-img.fade-img.is-loaded {
+  transform: scale(1);
+}
+.card__hero-overlay {
+  position: absolute;
+  inset: 0;
+  /* Scrim: a light overall tint plus a strong dark base so the hero text
+     stays legible over bright videos/photos. */
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(19, 16, 16, 0.35) 0%,
+      rgba(19, 16, 16, 0.2) 35%,
+      rgba(19, 16, 16, 0.75) 72%,
+      rgba(19, 16, 16, 0.97) 100%
+    ),
+    rgba(19, 16, 16, 0.12);
+}
+/* Dissolve the hero media + scrim into transparency at the edge that meets the
+   body, so the card background shows through continuously instead of ending on
+   a hard line. Story fades downward; feed fades toward the body on the right.
+   The fade fractions here MUST match FADE_START in videoExport.ts. */
+.card--story .card__hero-img,
+.card--story .card__hero-overlay {
+  -webkit-mask-image: linear-gradient(to bottom, #000 48%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 48%, transparent 100%);
+}
+.card--feed .card__hero-img,
+.card--feed .card__hero-overlay {
+  -webkit-mask-image: linear-gradient(to right, #000 52%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 52%, transparent 100%);
+}
+.card__hero-text {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.card__eyebrow {
+  align-self: flex-start;
+  font-family: var(--c-mono);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--c-accent);
+  font-weight: 700;
+}
+.card__hero-label {
+  font-family: var(--c-mono);
+  color: var(--c-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.card__hero-name {
+  font-family: var(--c-display);
+  font-weight: 800;
+  line-height: 0.98;
+  letter-spacing: -2px;
+}
+.card__hero-plays {
+  font-family: var(--c-mono);
+  color: var(--c-muted);
+}
+
+/* ---- Body ---- */
+.card__body {
+  display: flex;
+  flex-direction: column;
+}
+.card__lists {
+  display: flex;
+  gap: 40px;
+  flex: none;
+}
+
+/* ---- Quote (lyric verse) ---- */
+.card__quote {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+.card__quote-text {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.card__quote-mark {
+  color: var(--c-accent);
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 0.5;
+}
+.card__quote-lines {
+  white-space: pre-line;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--c-text);
+}
+.card__quote-cite {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--c-muted);
+}
+.card__quote-cite::before {
+  content: '— ';
+}
+.card__list {
+  flex: 1;
+  min-width: 0;
+}
+.card__list-title {
+  margin: 0 0 18px;
+  font-family: var(--c-mono);
+  color: var(--c-accent);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+}
+.card__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.card__item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--c-line);
+}
+.card__item:last-child {
+  border-bottom: none;
+}
+.card__rank {
+  flex: none;
+  font-family: var(--c-mono);
+  color: var(--c-accent);
+  font-weight: 700;
+  text-align: center;
+}
+.card__thumb {
+  flex: none;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #241c15;
+}
+.card__thumb--empty {
+  display: block;
+}
+.card__item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.card__item-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card__item-sub {
+  font-family: var(--c-mono);
+  color: var(--c-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Footer / minutes ---- */
+.card__footer {
+  border-top: 1px solid var(--c-line);
+  display: flex;
+  flex-direction: column;
+}
+.card__minutes {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.card__minutes-value {
+  font-family: var(--c-display);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -3px;
+  background: linear-gradient(120deg, #fff, var(--c-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.card__minutes-unit {
+  font-family: var(--c-mono);
+  color: var(--c-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.card__footer-meta {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--c-mono);
+  color: var(--c-muted);
+}
+.card__handle {
+  color: var(--c-accent);
+  font-weight: 700;
+}
+
+/* =================== STORY (1080 × 1920) =================== */
+.card--story {
+  width: 1080px;
+  height: 1920px;
+  font-size: 26px;
+}
+.card--story .card__hero {
+  height: 620px;
+}
+.card--story .card__hero-text {
+  padding: 60px;
+}
+.card--story .card__eyebrow {
+  font-size: 24px;
+}
+.card--story .card__hero-label {
+  font-size: 22px;
+}
+.card--story .card__hero-name {
+  font-size: 86px;
+}
+.card--story .card__hero-plays {
+  font-size: 28px;
+}
+.card--story .card__body {
+  height: calc(1920px - 620px);
+  padding: 60px;
+}
+.card--story .card__list-title {
+  font-size: 26px;
+}
+.card--story .card__rank {
+  width: 30px;
+  font-size: 28px;
+}
+.card--story .card__thumb {
+  width: 74px;
+  height: 74px;
+}
+.card--story .card__item-name {
+  font-size: 28px;
+}
+.card--story .card__item-sub {
+  font-size: 22px;
+}
+.card--story .card__quote {
+  padding: 30px 10px;
+}
+.card--story .card__quote-text {
+  gap: 18px;
+  max-width: 860px;
+}
+.card--story .card__quote-mark {
+  font-size: 120px;
+  height: 46px;
+}
+.card--story .card__quote-lines {
+  font-size: 40px;
+}
+.card--story .card__quote-cite {
+  font-size: 26px;
+}
+.card--story .card__footer {
+  margin-top: 40px;
+  padding-top: 40px;
+}
+.card--story .card__minutes-value {
+  font-size: 120px;
+}
+.card--story .card__minutes-unit {
+  font-size: 30px;
+}
+.card--story .card__footer-meta {
+  margin-top: 20px;
+  font-size: 24px;
+}
+
+/* =================== FEED (1600 × 900) =================== */
+.card--feed {
+  width: 1600px;
+  height: 900px;
+  display: flex;
+  font-size: 22px;
+}
+.card--feed .card__hero {
+  width: 620px;
+  height: 900px;
+  flex: none;
+}
+.card--feed .card__hero-text {
+  padding: 50px;
+}
+.card--feed .card__eyebrow {
+  font-size: 20px;
+}
+.card--feed .card__hero-label {
+  font-size: 18px;
+}
+.card--feed .card__hero-name {
+  font-size: 68px;
+}
+.card--feed .card__hero-plays {
+  font-size: 24px;
+}
+.card--feed .card__body {
+  flex: 1;
+  height: 900px;
+  padding: 56px;
+}
+.card--feed .card__list-title {
+  font-size: 22px;
+}
+.card--feed .card__rank {
+  width: 26px;
+  font-size: 24px;
+}
+.card--feed .card__thumb {
+  width: 60px;
+  height: 60px;
+}
+.card--feed .card__item {
+  padding: 10px 0;
+}
+.card--feed .card__item-name {
+  font-size: 24px;
+}
+.card--feed .card__item-sub {
+  font-size: 19px;
+}
+.card--feed .card__quote {
+  padding: 20px 10px;
+}
+.card--feed .card__quote-text {
+  gap: 12px;
+  max-width: 100%;
+}
+.card--feed .card__quote-mark {
+  font-size: 84px;
+  height: 32px;
+}
+.card--feed .card__quote-lines {
+  font-size: 30px;
+}
+.card--feed .card__quote-cite {
+  font-size: 22px;
+}
+.card--feed .card__footer {
+  margin-top: 32px;
+  padding-top: 32px;
+}
+.card--feed .card__minutes-value {
+  font-size: 92px;
+}
+.card--feed .card__minutes-unit {
+  font-size: 26px;
+}
+.card--feed .card__footer-meta {
+  margin-top: 16px;
+  font-size: 20px;
+}

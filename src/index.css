@@ -1,0 +1,120 @@
+/* ── Design: "liner notes / audioscrobbler" ────────────────────────────────
+   A Last.fm listening report styled like the back of a record sleeve. Warm ink
+   (never blue-black), Last.fm-heritage crimson used with restraint, and the
+   personality carried by type + structure: Bricolage Grotesque for display,
+   Space Mono for every piece of data (counts, catalog labels, timings). */
+:root {
+  /* Light = a printed paper insert. */
+  --text: #6f665b;
+  --text-h: #1b1611;
+  --bg: #efe8db;
+  --surface: #f5efe4;
+  --border: #d9cfbd;
+  --code-bg: #e6dcca;
+  --accent: #bf3a20;
+  --accent-bg: rgba(191, 58, 32, 0.09);
+  --accent-border: rgba(191, 58, 32, 0.35);
+  --social-bg: rgba(27, 22, 17, 0.03);
+  --shadow:
+    rgba(40, 28, 18, 0.12) 0 12px 24px -10px, rgba(40, 28, 18, 0.08) 0 4px 8px -4px;
+
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --heading: 'Bricolage Grotesque Variable', system-ui, sans-serif;
+  --mono: 'Space Mono', ui-monospace, Consolas, monospace;
+
+  font: 18px/145% var(--sans);
+  letter-spacing: 0.1px;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  @media (max-width: 1024px) {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Dark = pressed vinyl under the needle. */
+    --text: #9b938a;
+    --text-h: #f3ede2;
+    --bg: #141110;
+    --surface: #1c1815;
+    --border: #332c25;
+    --code-bg: #1f1a16;
+    --accent: #e0472d;
+    --accent-bg: rgba(224, 71, 45, 0.15);
+    --accent-border: rgba(224, 71, 45, 0.42);
+    --social-bg: rgba(240, 230, 214, 0.04);
+    --shadow:
+      rgba(0, 0, 0, 0.5) 0 12px 24px -10px, rgba(0, 0, 0, 0.3) 0 4px 8px -4px;
+  }
+
+  #social .button-icon {
+    filter: invert(1) brightness(2);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+#root {
+  width: 100%;
+  min-height: 100svh;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+h1 {
+  font-size: 56px;
+  letter-spacing: -1.68px;
+  margin: 32px 0;
+  @media (max-width: 1024px) {
+    font-size: 36px;
+    margin: 20px 0;
+  }
+}
+h2 {
+  font-size: 24px;
+  line-height: 118%;
+  letter-spacing: -0.4px;
+  margin: 0 0 8px;
+  @media (max-width: 1024px) {
+    font-size: 20px;
+  }
+}
+p {
+  margin: 0;
+}
+
+code,
+.counter {
+  font-family: var(--mono);
+  display: inline-flex;
+  border-radius: 4px;
+  color: var(--text-h);
+}
+
+code {
+  font-size: 15px;
+  line-height: 135%;
+  padding: 4px 8px;
+  background: var(--code-bg);
+}
