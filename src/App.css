@@ -457,15 +457,18 @@
   display: none;
   position: fixed;
   top: 50%;
-  left: max(24px, calc(50% - 320px - 32px - 260px));
+  /* Sit just left of the centered 640px column (half = 320px) with a 32px gap,
+     clamped so it never runs off the viewport edge. Width comes from --dock-w
+     (set inline in App.tsx) so JS and CSS stay in sync. */
+  left: max(24px, calc(50% - 320px - 32px - var(--dock-w)));
   transform: translateY(-50%);
-  width: 260px;
+  width: var(--dock-w);
   z-index: 30;
   pointer-events: none;
   text-align: center;
   animation: dock-in 0.4s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
-@media (min-width: 1240px) {
+@media (min-width: 1360px) {
   .video-dock {
     display: block;
   }
@@ -482,7 +485,7 @@
   margin-right: -0.22em;
 }
 .video-dock__phone {
-  width: 260px;
+  width: var(--dock-w);
   /* height is set inline per format (Story 9:16 ↔ Feed 16:9); it eases so the
      mock morphs smoothly when the format toggle flips. */
   overflow: hidden;
@@ -510,6 +513,40 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .video-dock {
+    animation: none;
+  }
+}
+
+/* ---- inline video mock (mobile / narrow viewports) ----
+   The side-dock's counterpart below the breakpoint: it sits inline between the
+   video panel and the encarte and expands in when a clip is loaded. Reuses the
+   dock's phone/scale styling via the shared --dock-w var. */
+.video-mock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 4px auto 24px;
+  overflow: hidden;
+  transform-origin: top center;
+  animation: mock-in 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.video-mock .video-dock__label {
+  margin-bottom: 12px;
+}
+@keyframes mock-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scaleY(0.94);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+    max-height: 640px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .video-mock {
     animation: none;
   }
 }

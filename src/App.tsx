@@ -12,6 +12,11 @@ import './App.css'
 
 const MAX_CLIP = 30
 
+// Above this width the video preview mock lives in the desktop side-margin (a
+// fixed dock); below it, it drops inline between the video panel and the encarte.
+// Must match the .video-dock breakpoint in App.css.
+const WIDE_MQ = '(min-width: 1360px)'
+
 // Login com Spotify está desativado por ora (app ainda em Development Mode no
 // dashboard do Spotify, sem Extended Quota Mode — só contas na allowlist passam).
 // Todo o código do Spotify continua no lugar; basta voltar para `true` para
@@ -78,6 +83,12 @@ export default function App() {
   const [videoDur, setVideoDur] = useState(0)
   const [clipStart, setClipStart] = useState(0)
   const [clipLen, setClipLen] = useState(MAX_CLIP)
+  // Whether we're on a wide (desktop) viewport — decides if the video preview
+  // mock renders in the side-margin or inline. Tracked in JS (not just CSS) so
+  // only one of the two mocks mounts, i.e. we never decode the clip twice.
+  const [isWide, setIsWide] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(WIDE_MQ).matches,
+  )
 
   // Preview scaling: the RecapCard renders at exact export px (1080×1920 story,
   // 1600×900 feed); we measure the frame's real width and scale the card down
@@ -119,7 +130,7 @@ export default function App() {
   // Side-dock mock geometry. The dock width is fixed so it stays anchored in the
   // margin; only its height and the card scale change per format, and both ease
   // (CSS) so Story↔Feed morphs smoothly. Story card = 1080×1920, Feed = 1600×900.
-  const DOCK_W = 260
+  const DOCK_W = 320
   const dockIsStory = previewFmt === 'story'
   const dockScale = DOCK_W / (dockIsStory ? 1080 : 1600)
   const dockH = Math.round((dockIsStory ? 1920 : 900) * dockScale)
@@ -127,6 +138,15 @@ export default function App() {
   // On load, complete a Spotify OAuth redirect if we just came back from one.
   useEffect(() => {
     spotify.handleRedirect().then(setSpConnected).catch(() => {})
+  }, [])
+
+  // Keep isWide in sync with the viewport so the mock hops between the side-dock
+  // and the inline slot as the window crosses the breakpoint.
+  useEffect(() => {
+    const mq = window.matchMedia(WIDE_MQ)
+    const onChange = () => setIsWide(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
   }, [])
 
   // Fetch lyrics whenever the recap or the chosen song changes.
@@ -514,8 +534,12 @@ export default function App() {
               the desktop margin while a video is loaded, so the clip stays
               visible while the user scrubs the controls further down the page.
               Hidden on narrow viewports (CSS) — there's no room beside the column. */}
-          {videoUrl && (
-            <aside className="video-dock" aria-hidden>
+          {videoUrl && isWide && (
+            <aside
+              className="video-dock"
+              aria-hidden
+              style={{ '--dock-w': `${DOCK_W}px` } as CSSProperties}
+            >
               <span className="video-dock__label">
                 Preview do vídeo · {dockIsStory ? 'Story' : 'Feed'}
               </span>
@@ -645,6 +669,32 @@ export default function App() {
               </div>
             )}
           </section>
+
+          {/* Mobile counterpart of the side-dock: on narrow viewports the fixed
+              dock is gone, so the live mock drops in here, between the video
+              panel and the encarte, expanding in when a clip is loaded. */}
+          {videoUrl && !isWide && (
+            <section
+              className="video-mock"
+              aria-hidden
+              style={{ '--dock-w': `${DOCK_W}px` } as CSSProperties}
+            >
+              <span className="video-dock__label">
+                Preview do vídeo · {dockIsStory ? 'Story' : 'Feed'}
+              </span>
+              <div className="video-dock__phone" style={{ height: dockH }}>
+                <div className="video-dock__scale" style={{ transform: `scale(${dockScale})` }}>
+                  <RecapCard
+                    recap={recap}
+                    variant={previewFmt}
+                    quote={quote}
+                    quoteSong={quoteSong}
+                    {...videoProps}
+                  />
+                </div>
+              </div>
+            </section>
+          )}
 
           <section className="panel encarte">
             <div className="panel__head">
