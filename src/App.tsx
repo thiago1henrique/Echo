@@ -358,9 +358,8 @@ export default function App() {
         <div className="keybox">
           {hasClientId ? (
             <>
-              <p className="keybox__hint">
-                Entre com sua conta do Spotify para gerar o recap. Você é levado ao
-                Spotify pra autorizar e volta pra cá.
+              <p className="keybox__hint keybox__hint--center">
+                Entre com seu spotify para começar a ecoar seu som para todos.
               </p>
               <button className="btn btn--spotify" onClick={connectSpotify}>
                 <svg className="btn__spotify-mark" viewBox="0 0 168 168" aria-hidden fill="currentColor">

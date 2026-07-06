@@ -221,6 +221,9 @@
   line-height: 1.55;
   margin-bottom: 12px;
 }
+.keybox__hint--center {
+  text-align: center;
+}
 .keybox__hint a {
   color: var(--accent);
 }

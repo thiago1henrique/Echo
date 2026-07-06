@@ -1,4 +1,15 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node'
+// Minimal shapes for the bits of the Vercel Node req/res this function uses, so
+// it needs no @vercel/node dependency. That package pulls an old esbuild whose
+// postinstall build script pnpm blocks, which fails the Vercel install step.
+interface Req {
+  query: Record<string, string | string[] | undefined>
+}
+interface Res {
+  status: (code: number) => Res
+  setHeader: (name: string, value: string) => void
+  send: (body: string) => void
+  json: (body: unknown) => void
+}
 
 // Server-side proxy for the Last.fm API.
 //
@@ -23,7 +34,7 @@ const ALLOWED_METHODS = new Set([
 // else the caller sends is dropped.
 const ALLOWED_PARAMS = ['method', 'user', 'period', 'limit', 'from', 'to', 'page']
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: Req, res: Res) {
   const key = process.env.LASTFM_API_KEY
   if (!key) {
     res.status(500).json({ error: 'LASTFM_API_KEY não configurada no servidor.' })

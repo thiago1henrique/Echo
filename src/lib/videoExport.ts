@@ -240,10 +240,13 @@ export async function exportCardVideo(
   // instead of blindly at rAF's ~60Hz — that halved the wasted draws that were
   // starving MediaRecorder on slower devices and dropping frames. Falls back to
   // rAF where rVFC is unavailable (older Firefox).
-  interface RVFCVideo extends HTMLVideoElement {
-    requestVideoFrameCallback?: (cb: () => void) => number
-  }
-  const rvfc = (video as RVFCVideo).requestVideoFrameCallback?.bind(video)
+  // Cast through unknown rather than extending HTMLVideoElement: some TS DOM
+  // libs type requestVideoFrameCallback as a required method (with a different
+  // callback signature), which makes an `extends` redeclaration a type error.
+  // It's genuinely absent on older Firefox, so we still probe for it at runtime.
+  const rvfc = (
+    video as unknown as { requestVideoFrameCallback?: (cb: () => void) => number }
+  ).requestVideoFrameCallback?.bind(video)
 
   onStatus?.('Gravando… 0%')
   recorder.start()
