@@ -331,7 +331,7 @@ export default function App() {
   return (
     <div className="app" data-source={source}>
       <header className="masthead">
-        <span className="masthead__cat">Relatório de escuta</span>
+        <span className="masthead__cat">Ecoe para todos</span>
         <h1 className="masthead__title">Echo</h1>
         <p className="masthead__sub">
           Um retrato do que você andou ouvindo, prensado numa imagem pronta pra

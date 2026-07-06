@@ -297,6 +297,25 @@ video.card__hero-img {
   text-transform: uppercase;
   letter-spacing: 1px;
 }
+/* Spotify stand-in for the minutes number: the top genres, "carimbado" in mono. */
+.card__genres {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.card__genres-label {
+  font-family: var(--c-mono);
+  color: var(--c-accent);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+.card__genres-list {
+  font-family: var(--c-display);
+  font-weight: 800;
+  line-height: 1.05;
+  color: var(--c-text);
+  text-transform: lowercase;
+}
 .card__footer-meta {
   display: flex;
   justify-content: space-between;
@@ -385,6 +404,12 @@ video.card__hero-img {
 .card--story .card__minutes-unit {
   font-size: 30px;
 }
+.card--story .card__genres-label {
+  font-size: 30px;
+}
+.card--story .card__genres-list {
+  font-size: 60px;
+}
 .card--story .card__footer-meta {
   margin-top: 20px;
   font-size: 24px;
@@ -468,6 +493,12 @@ video.card__hero-img {
 }
 .card--feed .card__minutes-unit {
   font-size: 26px;
+}
+.card--feed .card__genres-label {
+  font-size: 22px;
+}
+.card--feed .card__genres-list {
+  font-size: 46px;
 }
 .card--feed .card__footer-meta {
   margin-top: 16px;

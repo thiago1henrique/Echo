@@ -113,6 +113,9 @@ export const RecapCard = forwardRef<HTMLDivElement, Props>(
   const overlay = mode === 'overlay'
   const hasMinutes = recap.minutes != null
   const hasScrobbles = recap.scrobbles != null
+  // Spotify exposes no play counts; its top genres stand in for the number.
+  const genres = recap.genres ?? []
+  const hasGenres = !hasMinutes && genres.length > 0
 
   return (
     <div ref={ref} className={`card card--${variant} ${overlay ? 'card--overlay' : ''}`}>
@@ -195,6 +198,12 @@ export const RecapCard = forwardRef<HTMLDivElement, Props>(
             <div className="card__minutes">
               <span className="card__minutes-value">{minutes}</span>
               <span className="card__minutes-unit">minutos ouvidos*</span>
+            </div>
+          )}
+          {hasGenres && (
+            <div className="card__genres">
+              <span className="card__genres-label">Top gêneros</span>
+              <span className="card__genres-list">{genres.join(' · ')}</span>
             </div>
           )}
           <div className="card__footer-meta">

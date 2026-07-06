@@ -30,6 +30,12 @@ export interface Recap {
   scrobbles?: number
   /** Undefined for sources without play data (Spotify). */
   minutes?: number
+  /**
+   * Top genres, most frequent first. Populated for Spotify (aggregated from the
+   * top artists' genre tags), where it stands in for the play-count numbers the
+   * API doesn't expose. Undefined for Last.fm.
+   */
+  genres?: string[]
 }
 
 // Which period windows each source can actually serve. Spotify only offers

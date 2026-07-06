@@ -33,6 +33,39 @@
   }
 }
 
+/* ---- holofote: an accent-tinted spotlight rising from the bottom ----
+   A soft elliptical glow anchored to the bottom of the viewport that fades out
+   a little past the middle of the screen. It reads var(--accent), so it's
+   crimson under Last.fm and green under Spotify — and because --accent is a
+   registered animatable <color>, the whole glow cross-fades on source switch.
+   The page's opaque background lives on :root/html (the canvas), so this
+   z-index:-1 fixed layer paints above that base but behind all .app content. */
+.app::before {
+  content: '';
+  position: fixed;
+  left: 50%;
+  bottom: -12vh;
+  width: min(1500px, 150vw);
+  height: 78vh;
+  transform: translateX(-50%);
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 58% 100% at 50% 100%,
+    var(--accent) 0%,
+    transparent 66%
+  );
+  opacity: 0.18;
+  filter: blur(24px);
+  transition: opacity 0.45s ease;
+}
+@media (prefers-color-scheme: dark) {
+  /* On the dark "pressed vinyl" surface the glow can bloom harder. */
+  .app::before {
+    opacity: 0.34;
+  }
+}
+
 /* ---- masthead ---- */
 .masthead {
   text-align: center;
@@ -176,8 +209,7 @@
 
 /* ---- auth / key box ---- */
 .keybox {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--accent);
   background: var(--social-bg);
   border-radius: 8px;
   padding: 16px 18px;
@@ -670,7 +702,17 @@
 }
 .lyric-line.is-selected {
   background: var(--accent-bg);
-  box-shadow: inset 2px 0 0 var(--accent);
+}
+/* A run of adjacent marked lines reads as one continuous block: square off the
+   inner corners so the tinted background flows through the run instead of
+   pinching at every row boundary. */
+.lyric-line.is-selected:has(+ .lyric-line.is-selected) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.lyric-line.is-selected + .lyric-line.is-selected {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 .lyric-line.is-selected .lyric-line__num {
   color: var(--accent);
