@@ -114,16 +114,23 @@ export function proxied(url: string | undefined, size?: number): string | undefi
 export async function toDataUrl(url: string | undefined): Promise<string | undefined> {
   if (!url) return undefined
   try {
-    const res = await fetch(url)
-    if (!res.ok) return undefined
+    const res = await fetch(url, { referrerPolicy: 'no-referrer' })
+    if (!res.ok) {
+      console.warn("toDataUrl got non-ok response, falling back to raw url:", res.status, url)
+      return url
+    }
     const blob = await res.blob()
     return await new Promise<string | undefined>((resolve) => {
       const fr = new FileReader()
       fr.onload = () => resolve(fr.result as string)
-      fr.onerror = () => resolve(undefined)
+      fr.onerror = () => {
+        console.warn("toDataUrl file reader error, falling back to raw url:", url)
+        resolve(url)
+      }
       fr.readAsDataURL(blob)
     })
-  } catch {
-    return undefined
+  } catch (err) {
+    console.warn("toDataUrl fetch exception, falling back to raw url:", url, err)
+    return url
   }
 }

@@ -60,7 +60,13 @@ function pickImage(images?: LfmImage[]): string | undefined {
 }
 
 interface TopArtistsResp {
-  topartists: { artist: { name: string; playcount: string }[] }
+  topartists: {
+    artist: {
+      name: string
+      playcount: string
+      image?: LfmImage[]
+    }[]
+  }
 }
 interface TopTracksResp {
   toptracks: {
@@ -77,7 +83,11 @@ interface RecentResp {
   recenttracks: { '@attr'?: { total?: string } }
 }
 
-async function getTopArtists(user: string, period: Period, limit: number): Promise<ArtistStat[]> {
+async function getTopArtists(
+  user: string,
+  period: Period,
+  limit: number,
+): Promise<(ArtistStat & { lfmImage?: string })[]> {
   const data = await call<TopArtistsResp>({
     method: 'user.gettopartists',
     user,
@@ -87,6 +97,7 @@ async function getTopArtists(user: string, period: Period, limit: number): Promi
   return (data.topartists?.artist ?? []).map((a) => ({
     name: a.name,
     playcount: Number(a.playcount) || 0,
+    lfmImage: pickImage(a.image),
   }))
 }
 
@@ -144,8 +155,8 @@ export async function fetchRecap(userRaw: string, period: Period): Promise<Recap
 
   // Bake every image into a data URL (see toDataUrl for why). Done in parallel.
   const [heroImage, artistDataImages, trackDataImages] = await Promise.all([
-    toDataUrl(proxied(artistImages[0], 1000)),
-    Promise.all(artistImages.map((u) => toDataUrl(proxied(u, 300)))),
+    toDataUrl(proxied(artistImages[0] ?? topArtists[0]?.lfmImage, 1000)),
+    Promise.all(artistImages.map((u, i) => toDataUrl(proxied(u ?? topArtists[i]?.lfmImage, 300)))),
     Promise.all(
       top5Tracks.map((t, i) => toDataUrl(proxied(trackCovers[i] ?? pickImage(t.image), 300))),
     ),
