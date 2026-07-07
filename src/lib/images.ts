@@ -2,50 +2,10 @@
 //
 // Two problems this file solves:
 // 1. Last.fm deprecated artist photos (their API returns a placeholder star),
-//    so we fetch real artist pictures from Deezer via JSONP (no CORS/backend).
+//    so we fetch real artist pictures from Deezer via our server-side proxy (no CORS/JSONP issues).
 // 2. Canvas export (html-to-image) taints on cross-origin images. We route every
-//    external image through wsrv.nl, which serves them CORS-enabled, so
+//    external image through wsrv.nl or directly, keeping them CORS-enabled, so
 //    the PNG export works reliably.
-
-/** Runs a JSONP request (used for Deezer, which has no CORS headers). */
-function jsonp<T>(url: string, timeoutMs = 8000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const cb = `__jsonp_${Date.now()}_${Math.floor(Math.random() * 1e6)}`
-    const script = document.createElement('script')
-    let done = false
-
-    const cleanup = () => {
-      delete (window as unknown as Record<string, unknown>)[cb]
-      script.remove()
-      clearTimeout(timer)
-    }
-
-    const timer = setTimeout(() => {
-      if (done) return
-      done = true
-      cleanup()
-      reject(new Error('JSONP timeout'))
-    }, timeoutMs)
-
-    ;(window as unknown as Record<string, unknown>)[cb] = (data: T) => {
-      if (done) return
-      done = true
-      cleanup()
-      resolve(data)
-    }
-
-    script.onerror = () => {
-      if (done) return
-      done = true
-      cleanup()
-      reject(new Error('JSONP error'))
-    }
-
-    const sep = url.includes('?') ? '&' : '?'
-    script.src = `${url}${sep}output=jsonp&callback=${cb}`
-    document.body.appendChild(script)
-  })
-}
 
 interface DeezerArtist {
   picture_xl?: string
@@ -68,11 +28,14 @@ interface DeezerTrackSearch {
 /** Returns a real artist photo URL from Deezer, or undefined if not found. */
 export async function fetchArtistImage(name: string): Promise<string | undefined> {
   try {
-    const url = `https://api.deezer.com/search/artist?limit=1&q=${encodeURIComponent(name)}`
-    const res = await jsonp<DeezerArtistSearch>(url)
-    const a = res.data?.[0]
+    const url = `/api/deezer?type=artist&q=${encodeURIComponent(name)}`
+    const res = await fetch(url)
+    if (!res.ok) return undefined
+    const data = await res.json() as DeezerArtistSearch
+    const a = data.data?.[0]
     return a?.picture_xl || a?.picture_big || a?.picture_medium || undefined
-  } catch {
+  } catch (err) {
+    console.error("fetchArtistImage failed for:", name, err)
     return undefined
   }
 }
@@ -84,11 +47,14 @@ export async function fetchTrackCover(
 ): Promise<string | undefined> {
   try {
     const q = `artist:"${artist}" track:"${track}"`
-    const url = `https://api.deezer.com/search?limit=1&q=${encodeURIComponent(q)}`
-    const res = await jsonp<DeezerTrackSearch>(url)
-    const album = res.data?.[0]?.album
+    const url = `/api/deezer?type=track&q=${encodeURIComponent(q)}`
+    const res = await fetch(url)
+    if (!res.ok) return undefined
+    const data = await res.json() as DeezerTrackSearch
+    const album = data.data?.[0]?.album
     return album?.cover_xl || album?.cover_big || album?.cover_medium || undefined
-  } catch {
+  } catch (err) {
+    console.error("fetchTrackCover failed for:", artist, track, err)
     return undefined
   }
 }
