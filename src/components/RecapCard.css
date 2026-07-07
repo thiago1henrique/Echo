@@ -307,7 +307,7 @@ video.card__hero-img {
   -webkit-background-clip: text !important;
   background-clip: text !important;
   -webkit-text-fill-color: transparent !important;
-  animation: color-sweep 6s ease infinite !important;
+  animation: color-sweep 16s ease infinite !important;
   will-change: background-position;
 }
 .card__minutes-unit {
