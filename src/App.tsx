@@ -10,7 +10,7 @@ import { exportCardVideo, downloadBlob } from './lib/videoExport'
 import { RecapCard } from './components/RecapCard'
 import './App.css'
 
-const MAX_CLIP = 30
+const MAX_CLIP = 60
 
 // Above this width the video preview mock lives in the desktop side-margin (a
 // fixed dock); below it, it drops inline between the video panel and the encarte.
@@ -266,10 +266,15 @@ export default function App() {
     }
   }
 
-  async function handleVideoExport(kind: 'story' | 'feed') {
+  async function handleVideoExport(kind: 'story' | 'feed', customDuration?: number) {
     const overlayNode = kind === 'story' ? overlayStoryRef.current : overlayFeedRef.current
     const video = exportVideoRef.current
     if (!overlayNode || !video || !recap) return
+
+    const duration = customDuration ?? clipLen
+    const maxStartForDur = Math.max(0, videoDur - duration)
+    const startForExport = Math.min(clipStart, maxStartForDur)
+
     setExporting(kind)
     setVstatus('Preparando…')
     try {
@@ -277,8 +282,8 @@ export default function App() {
         overlayNode,
         video,
         ...DIMS[kind],
-        start,
-        duration: clipLen,
+        start: startForExport,
+        duration: duration,
         onStatus: setVstatus,
       })
       downloadBlob(blob, `recap-${recap.user}-${recap.period}-${kind}.${ext}`)
@@ -647,10 +652,16 @@ export default function App() {
                   <input
                     type="range"
                     min={0}
-                    max={maxStart}
+                    max={videoDur ? Math.max(0, videoDur - 1) : MAX_CLIP}
                     step={0.1}
-                    value={start}
-                    onChange={(e) => setClipStart(Number(e.target.value))}
+                    value={clipStart}
+                    onChange={(e) => {
+                      const val = Number(e.target.value)
+                      setClipStart(val)
+                      if (videoDur && val + clipLen > videoDur) {
+                        setClipLen(Math.max(1, videoDur - val))
+                      }
+                    }}
                   />
                 </label>
                 <label className="video-editor__row">
@@ -661,9 +672,59 @@ export default function App() {
                     max={Math.min(MAX_CLIP, videoDur || MAX_CLIP)}
                     step={0.5}
                     value={clipLen}
-                    onChange={(e) => setClipLen(Number(e.target.value))}
+                    onChange={(e) => {
+                      const val = Number(e.target.value)
+                      setClipLen(val)
+                      if (videoDur && clipStart + val > videoDur) {
+                        setClipStart(Math.max(0, videoDur - val))
+                      }
+                    }}
                   />
                 </label>
+                <div className="video-editor__presets">
+                  <span className="video-editor__presets-label">exporte diretamente o clipe em:</span>
+                  <div className="video-editor__presets-row">
+                    <button
+                      className="btn"
+                      disabled={!!exporting}
+                      onClick={() => {
+                        const d = Math.min(15, videoDur || 15)
+                        setClipLen(d)
+                        const maxS = Math.max(0, videoDur - d)
+                        setClipStart(prev => Math.min(prev, maxS))
+                        handleVideoExport(previewFmt, d)
+                      }}
+                    >
+                      15 segundos
+                    </button>
+                    <button
+                      className="btn"
+                      disabled={!!exporting}
+                      onClick={() => {
+                        const d = Math.min(30, videoDur || 30)
+                        setClipLen(d)
+                        const maxS = Math.max(0, videoDur - d)
+                        setClipStart(prev => Math.min(prev, maxS))
+                        handleVideoExport(previewFmt, d)
+                      }}
+                    >
+                      30 segundos
+                    </button>
+                    <button
+                      className="btn"
+                      disabled={!!exporting}
+                      onClick={() => {
+                        const d = Math.min(60, videoDur || 60)
+                        setClipLen(d)
+                        const maxS = Math.max(0, videoDur - d)
+                        setClipStart(prev => Math.min(prev, maxS))
+                        handleVideoExport(previewFmt, d)
+                      }}
+                    >
+                      1 minuto
+                    </button>
+                  </div>
+                </div>
                 <button className="btn" onClick={removeVideo}>
                   Remover vídeo
                 </button>
@@ -783,8 +844,8 @@ export default function App() {
         <div className="offscreen" aria-hidden>
           <RecapCard ref={storyRef} recap={recap} variant="story" quote={quote} quoteSong={quoteSong} {...videoProps} />
           <RecapCard ref={feedRef} recap={recap} variant="feed" quote={quote} quoteSong={quoteSong} {...videoProps} />
-          <RecapCard ref={overlayStoryRef} recap={recap} variant="story" mode="overlay" quote={quote} quoteSong={quoteSong} />
-          <RecapCard ref={overlayFeedRef} recap={recap} variant="feed" mode="overlay" quote={quote} quoteSong={quoteSong} />
+          <RecapCard ref={overlayStoryRef} recap={recap} variant="story" mode="overlay" quote={quote} quoteSong={quoteSong} videoUrl={videoUrl} />
+          <RecapCard ref={overlayFeedRef} recap={recap} variant="feed" mode="overlay" quote={quote} quoteSong={quoteSong} videoUrl={videoUrl} />
           {videoUrl && (
             <video ref={exportVideoRef} src={videoUrl} muted playsInline preload="auto" />
           )}
@@ -799,17 +860,19 @@ export default function App() {
       )}
     </div>
 
-    <footer className="site-footer">
-      <a
-        className="site-footer__credit"
-        href="https://manguehouse.com/"
-        target="_blank"
-        rel="noreferrer"
-      >
-        <span className="site-footer__logo" aria-hidden />
-        Desenvolvido por Mangue House
-      </a>
-    </footer>
+    {recap && (
+      <footer className="site-footer">
+        <a
+          className="site-footer__credit"
+          href="https://manguehouse.com/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <span className="site-footer__logo" aria-hidden />
+          Desenvolvido por Mangue House
+        </a>
+      </footer>
+    )}
     </>
   )
 }

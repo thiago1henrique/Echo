@@ -118,7 +118,7 @@ export const RecapCard = forwardRef<HTMLDivElement, Props>(
   const hasGenres = !hasMinutes && genres.length > 0
 
   return (
-    <div ref={ref} className={`card card--${variant} ${overlay ? 'card--overlay' : ''}`}>
+    <div ref={ref} className={`card card--${variant} card--${recap.source} ${overlay ? 'card--overlay' : ''} ${videoUrl ? 'card--has-video' : ''}`}>
       <div className="card__hero">
         {overlay ? null : videoUrl ? (
           <HeroVideo src={videoUrl} start={videoStart} duration={videoDuration} />

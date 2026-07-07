@@ -281,15 +281,34 @@ video.card__hero-img {
   align-items: baseline;
   gap: 16px;
 }
+/* Color sweep animation for minutes */
+@keyframes color-sweep {
+  0% {
+    background-position: 0% 50%;
+    text-shadow: 0 0 0px transparent;
+  }
+  50% {
+    background-position: 100% 50%;
+    text-shadow: 0 0 0.1px transparent;
+  }
+  100% {
+    background-position: 0% 50%;
+    text-shadow: 0 0 0px transparent;
+  }
+}
+
 .card__minutes-value {
   font-family: var(--c-display);
   font-weight: 800;
   line-height: 1;
   letter-spacing: -3px;
-  background: linear-gradient(120deg, #fff, var(--c-accent));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(270deg, #ffffff, var(--c-accent), #ffffff) !important;
+  background-size: 200% auto !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  animation: color-sweep 6s ease infinite !important;
+  will-change: background-position;
 }
 .card__minutes-unit {
   font-family: var(--c-mono);

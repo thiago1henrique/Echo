@@ -94,6 +94,7 @@ function buildCompositor(
   canvasW: number,
   canvasH: number,
   hero: Rect,
+  overlayNode: HTMLElement,
 ) {
   const canvas = document.createElement('canvas')
   canvas.width = canvasW
@@ -129,6 +130,33 @@ function buildCompositor(
   // hero rect never change) — compute it once.
   const { sx, sy, sw, sh } = coverCrop(video.videoWidth, video.videoHeight, hero.w, hero.h)
 
+  // Find the minutes text bounding rect relative to the overlay container
+  const minutesEl = overlayNode.querySelector('.card__minutes-value') as HTMLElement | null
+  let minutesRect: Rect | null = null
+  if (minutesEl) {
+    const containerRect = overlayNode.getBoundingClientRect()
+    const elRect = minutesEl.getBoundingClientRect()
+    minutesRect = {
+      x: elRect.left - containerRect.left,
+      y: elRect.top - containerRect.top,
+      w: elRect.width,
+      h: elRect.height,
+    }
+  }
+
+  // Get computed accent color from the DOM
+  const accentColor = getComputedStyle(overlayNode).getPropertyValue('--c-accent').trim() || '#e0472d'
+
+  // Offscreen canvas for drawing color animated minutes text
+  const tempCanvas = document.createElement('canvas')
+  if (minutesRect && minutesRect.w > 0 && minutesRect.h > 0) {
+    tempCanvas.width = minutesRect.w
+    tempCanvas.height = minutesRect.h
+  }
+  const tempCtx = tempCanvas.getContext('2d')
+
+  let frameCount = 0
+
   const composite = () => {
     ctx.fillStyle = bgGradient
     ctx.fillRect(0, 0, canvasW, canvasH)
@@ -142,6 +170,43 @@ function buildCompositor(
     hctx.fillRect(0, 0, hero.w, hero.h)
     ctx.drawImage(heroCanvas, hero.x, hero.y)
     ctx.drawImage(overlay, 0, 0, canvasW, canvasH)
+
+    // Render animated color sweep over minutes text if available
+    if (minutesRect && minutesRect.w > 0 && minutesRect.h > 0 && tempCtx) {
+      const t = (frameCount % 60) / 60 // 2-second loop at 30fps
+      const grad = tempCtx.createLinearGradient(
+        -minutesRect.w + 2 * minutesRect.w * t,
+        0,
+        2 * minutesRect.w * t,
+        0
+      )
+      grad.addColorStop(0, '#ffffff')
+      grad.addColorStop(0.25, accentColor)
+      grad.addColorStop(0.5, '#ffffff')
+      grad.addColorStop(0.75, accentColor)
+      grad.addColorStop(1.0, '#ffffff')
+
+      tempCtx.globalCompositeOperation = 'source-over'
+      tempCtx.clearRect(0, 0, minutesRect.w, minutesRect.h)
+      tempCtx.drawImage(
+        overlay,
+        minutesRect.x,
+        minutesRect.y,
+        minutesRect.w,
+        minutesRect.h,
+        0,
+        0,
+        minutesRect.w,
+        minutesRect.h
+      )
+      tempCtx.globalCompositeOperation = 'source-in'
+      tempCtx.fillStyle = grad
+      tempCtx.fillRect(0, 0, minutesRect.w, minutesRect.h)
+
+      ctx.drawImage(tempCanvas, minutesRect.x, minutesRect.y)
+    }
+
+    frameCount++
   }
 
   return { canvas, composite }
@@ -300,7 +365,7 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     bitrate: AUDIO_BITRATE,
   })
 
-  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero)
+  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero, overlayNode)
 
   await prepareVideo(video, start)
   // Unmute so the tap carries real audio; the source node above keeps the
@@ -508,7 +573,7 @@ async function exportViaMediaRecorder(
   const overlayUrl = await toPng(overlayNode, { pixelRatio: 1, cacheBust: true })
   const overlay = await loadImage(overlayUrl)
 
-  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero)
+  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero, overlayNode)
 
   // Build the recording stream: canvas video + the clip's audio.
   const canvasStream = canvas.captureStream(FPS)
