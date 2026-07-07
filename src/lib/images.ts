@@ -4,7 +4,7 @@
 // 1. Last.fm deprecated artist photos (their API returns a placeholder star),
 //    so we fetch real artist pictures from Deezer via JSONP (no CORS/backend).
 // 2. Canvas export (html-to-image) taints on cross-origin images. We route every
-//    external image through images.weserv.nl, which serves them CORS-enabled, so
+//    external image through wsrv.nl, which serves them CORS-enabled, so
 //    the PNG export works reliably.
 
 /** Runs a JSONP request (used for Deezer, which has no CORS headers). */
@@ -101,7 +101,7 @@ export function proxied(url: string | undefined, size?: number): string | undefi
   if (!url) return undefined
   const bare = url.replace(/^https?:\/\//, '')
   const sizeParam = size ? `&w=${size}&h=${size}&fit=cover` : ''
-  return `https://images.weserv.nl/?url=${encodeURIComponent(bare)}${sizeParam}`
+  return `https://wsrv.nl/?url=${encodeURIComponent(bare)}${sizeParam}`
 }
 
 /**
