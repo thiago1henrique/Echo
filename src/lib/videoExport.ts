@@ -18,6 +18,7 @@
 //   • Legacy fallback (Safari/older Firefox): MediaRecorder + ffmpeg.wasm.
 
 import { toPng } from 'html-to-image'
+import { activeLineIndex, type SyncedLine } from './lyrics'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile } from '@ffmpeg/util'
 // Self-hosted ffmpeg core (served same-origin by Vite) — avoids the ~30MB CDN
@@ -45,6 +46,16 @@ export interface Rect {
   h: number
 }
 
+/** Time-synced lyric layer: an active line is drawn per frame over the card. */
+export interface LyricLayerOpts {
+  /** Sorted synced lines (index-aligned with the pre-rendered images). */
+  lines: SyncedLine[]
+  /** Card variant, used to style the pre-rendered line images. */
+  variant: 'story' | 'feed'
+  /** Song time (s) that the clip's first frame (at `start`) corresponds to. */
+  offset: number
+}
+
 export interface VideoExportOpts {
   overlayNode: HTMLElement
   video: HTMLVideoElement
@@ -54,6 +65,16 @@ export interface VideoExportOpts {
   start: number
   duration: number
   onStatus?: (s: string) => void
+  /** When set, the active lyric line is composited per frame (lyric mode). */
+  lyric?: LyricLayerOpts
+}
+
+/** A prepared lyric layer: one image per line + where to draw it in the card. */
+interface PreparedLyric {
+  images: HTMLImageElement[]
+  lines: SyncedLine[]
+  rect: Rect
+  offset: number
 }
 
 const FPS = 30
@@ -84,6 +105,83 @@ function coverCrop(vw: number, vh: number, dw: number, dh: number) {
   return { sx: 0, sy: (vh - sh) / 2, sw: vw, sh }
 }
 
+/**
+ * Pre-renders each synced lyric line to a transparent PNG sized to the card's
+ * lyric box, so the compositor can blit the active line per frame without
+ * styling text on the canvas (keeps the CSS-driven look). Returns the images
+ * plus the box rect (relative to the card) to draw them at.
+ *
+ * Performance optimization: Only pre-renders lines that will actually be visible
+ * during the duration of the exported video clip to avoid freezing/crashing the
+ * browser when processing the entire song's lyrics.
+ */
+async function prepareLyricFrames(
+  overlayNode: HTMLElement,
+  lyric: LyricLayerOpts,
+  _clipStart: number,
+  clipDuration: number,
+): Promise<PreparedLyric | null> {
+  const box = overlayNode.querySelector('.card__lyric') as HTMLElement | null
+  if (!box || lyric.lines.length === 0) return null
+
+  const cardRect = overlayNode.getBoundingClientRect()
+  const boxRect = box.getBoundingClientRect()
+  const rect: Rect = {
+    x: boxRect.left - cardRect.left,
+    y: boxRect.top - cardRect.top,
+    w: boxRect.width,
+    h: boxRect.height,
+  }
+  if (rect.w < 1 || rect.h < 1) return null
+
+  // Slice only the lyrics that will be active in the clip window. Song time is
+  // rebased to the clip start, so it runs [offset, offset + clipDuration].
+  const minTime = lyric.offset
+  const maxTime = lyric.offset + clipDuration
+
+  const firstActiveIdx = Math.max(0, activeLineIndex(lyric.lines, minTime))
+  const lastActiveIdx = activeLineIndex(lyric.lines, maxTime)
+  // Include the next line as well to prevent any cutoffs/glitches at the boundary.
+  const endIdx = lastActiveIdx >= 0 ? Math.min(lyric.lines.length - 1, lastActiveIdx + 1) : 0
+
+  const slicedLines = lyric.lines.slice(firstActiveIdx, endIdx + 1)
+  if (slicedLines.length === 0) {
+    return { images: [], lines: [], rect, offset: lyric.offset }
+  }
+
+  // Offscreen render node: a lyric box fixed to the measured size, wrapped in the
+  // card/variant classes so the ancestor CSS (font sizes, colors, vars) applies.
+  // The wrap is forced to block/fixed-width: the feed card is `display:flex`, so
+  // as a flex container it would collapse the box's width (via `.card__lyric`'s
+  // flex:1) and push the text out of frame. `flex:none` on the box guards the
+  // same for good measure.
+  const wrap = document.createElement('div')
+  wrap.className = `card card--${lyric.variant} card--lyric`
+  wrap.style.cssText = `position:fixed;left:-99999px;top:0;display:block;width:${rect.w}px;`
+  const renderBox = document.createElement('div')
+  renderBox.className = 'card__lyric'
+  renderBox.style.width = `${rect.w}px`
+  renderBox.style.height = `${rect.h}px`
+  renderBox.style.flex = 'none'
+  const lineEl = document.createElement('span')
+  lineEl.className = 'card__lyric-line is-active'
+  renderBox.appendChild(lineEl)
+  wrap.appendChild(renderBox)
+  document.body.appendChild(wrap)
+
+  try {
+    const images: HTMLImageElement[] = []
+    for (const line of slicedLines) {
+      lineEl.textContent = line.text
+      const url = await toPng(renderBox, { pixelRatio: 1, cacheBust: true })
+      images.push(await loadImage(url))
+    }
+    return { images, lines: slicedLines, rect, offset: lyric.offset }
+  } finally {
+    document.body.removeChild(wrap)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shared compositor: builds the canvas + per-frame draw routine used by both
 // the WebCodecs and legacy paths.
@@ -95,6 +193,8 @@ function buildCompositor(
   canvasH: number,
   hero: Rect,
   overlayNode: HTMLElement,
+  lyric: PreparedLyric | null,
+  clipStart: number,
 ) {
   const canvas = document.createElement('canvas')
   canvas.width = canvasW
@@ -156,8 +256,11 @@ function buildCompositor(
   const tempCtx = tempCanvas.getContext('2d')
 
   let frameCount = 0
+  let lastLyricIdx = -2
 
-  const composite = () => {
+  // `mediaTime` (video playback time, s) drives the lyric line; it's undefined
+  // for the recap path, which animates purely off frameCount.
+  const composite = (mediaTime?: number) => {
     ctx.fillStyle = bgGradient
     ctx.fillRect(0, 0, canvasW, canvasH)
     // Draw the video into the offscreen buffer, then erase its trailing edge
@@ -170,6 +273,19 @@ function buildCompositor(
     hctx.fillRect(0, 0, hero.w, hero.h)
     ctx.drawImage(heroCanvas, hero.x, hero.y)
     ctx.drawImage(overlay, 0, 0, canvasW, canvasH)
+
+    // Draw the active lyric line into the lyric box (lyric mode only).
+    if (lyric && mediaTime != null) {
+      // `mediaTime` is the raw video timeline; rebase to the clip start so
+      // `offset` is the song position (s) playing at the start of the clip.
+      const songTime = mediaTime - clipStart + lyric.offset
+      const idx = activeLineIndex(lyric.lines, songTime)
+      lastLyricIdx = idx
+      if (idx >= 0) ctx.drawImage(lyric.images[idx], lyric.rect.x, lyric.rect.y)
+    } else if (lyric && lastLyricIdx >= 0) {
+      // No fresh mediaTime this frame — keep showing the last active line.
+      ctx.drawImage(lyric.images[lastLyricIdx], lyric.rect.x, lyric.rect.y)
+    }
 
     // Render animated color sweep over minutes text if available
     if (minutesRect && minutesRect.w > 0 && minutesRect.h > 0 && tempCtx) {
@@ -312,6 +428,9 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
   onStatus?.('Preparando…')
   const overlayUrl = await toPng(overlayNode, { pixelRatio: 1, cacheBust: true })
   const overlay = await loadImage(overlayUrl)
+  const preparedLyric = opts.lyric
+    ? await prepareLyricFrames(overlayNode, opts.lyric, start, duration)
+    : null
 
   // Tap the clip's audio through the WebAudio graph. decodeAudioData can't be
   // used here — it throws EncodingError on most *video* containers — so we route
@@ -365,7 +484,7 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     bitrate: AUDIO_BITRATE,
   })
 
-  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero, overlayNode)
+  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero, overlayNode, preparedLyric, start)
 
   await prepareVideo(video, start)
   // Unmute so the tap carries real audio; the source node above keeps the
@@ -434,19 +553,34 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
 
   await new Promise<void>((resolve) => {
     let done = false
+    // If the clip is shorter than the requested duration it plays to its end
+    // and pauses — rVFC then stops firing, so without this the frozen last
+    // frame gets padded over the remaining audio. Restart the segment on
+    // 'ended' so frames keep flowing and the clip loops to fill the duration.
+    function onLoopEnded() {
+      if (done) return
+      try {
+        video.currentTime = start
+      } catch {
+        /* not seekable yet */
+      }
+      void video.play().catch(() => {})
+    }
     const finish = () => {
       if (done) return
       done = true
       clearTimeout(watchdog)
+      video.removeEventListener('ended', onLoopEnded)
       resolve()
     }
+    video.addEventListener('ended', onLoopEnded)
     // rVFC only fires on new decoded frames, so a stalled clip would hang the
     // loop. This wall-clock backstop guarantees we stop.
     const watchdog = setTimeout(finish, (duration + 4) * 1000)
 
     const onDecoded = async (mediaTime: number) => {
       if (done) return
-      composite()
+      composite(mediaTime)
 
       // Detect a loop restart (mediaTime jumped backwards) and carry the span.
       if (lastMedia >= 0 && mediaTime + 1e-3 < lastMedia) base += lastMedia - start
@@ -465,9 +599,13 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
         finish()
         return
       }
-      // Loop the clip if it is shorter than the requested duration (the app
-      // normally clamps duration ≤ clip length, so this rarely triggers).
-      if (video.currentTime >= start + duration || video.ended) video.currentTime = start
+      // Loop the clip if it is shorter than the requested duration. Resume
+      // playback after seeking back — a clip that reached its end is paused,
+      // and a paused video never decodes new frames (freezing the output).
+      if (video.currentTime >= start + duration || video.ended) {
+        video.currentTime = start
+        if (video.paused) void video.play().catch(() => {})
+      }
 
       // Backpressure: don't let VideoFrames pile up faster than the hardware
       // encoder drains them (each frame holds a full-res GPU buffer).
@@ -572,8 +710,11 @@ async function exportViaMediaRecorder(
   onStatus?.('Preparando…')
   const overlayUrl = await toPng(overlayNode, { pixelRatio: 1, cacheBust: true })
   const overlay = await loadImage(overlayUrl)
+  const preparedLyric = opts.lyric
+    ? await prepareLyricFrames(overlayNode, opts.lyric, start, duration)
+    : null
 
-  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero, overlayNode)
+  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero, overlayNode, preparedLyric, start)
 
   // Build the recording stream: canvas video + the clip's audio.
   const canvasStream = canvas.captureStream(FPS)
@@ -614,12 +755,25 @@ async function exportViaMediaRecorder(
 
   await new Promise<void>((resolve) => {
     let done = false
+    // Restart the segment when a short clip reaches its end so playback keeps
+    // going (a paused, ended video would otherwise freeze the recorded frames).
+    function onLoopEnded() {
+      if (done) return
+      try {
+        video.currentTime = start
+      } catch {
+        /* not seekable yet */
+      }
+      void video.play().catch(() => {})
+    }
     const finish = () => {
       if (done) return
       done = true
       clearTimeout(watchdog)
+      video.removeEventListener('ended', onLoopEnded)
       resolve()
     }
+    video.addEventListener('ended', onLoopEnded)
     const watchdog = setTimeout(finish, (duration + 1) * 1000)
     const schedule = () => {
       if (rvfc) rvfc(frame)
@@ -627,7 +781,7 @@ async function exportViaMediaRecorder(
     }
     const frame = () => {
       if (done) return
-      composite()
+      composite(video.currentTime)
       const elapsed = (performance.now() - startedAt) / 1000
       const pct = Math.min(100, Math.round((elapsed / duration) * 100))
       if (pct !== lastPct) {
@@ -638,7 +792,10 @@ async function exportViaMediaRecorder(
         finish()
         return
       }
-      if (video.currentTime >= start + duration || video.ended) video.currentTime = start
+      if (video.currentTime >= start + duration || video.ended) {
+        video.currentTime = start
+        if (video.paused) void video.play().catch(() => {})
+      }
       schedule()
     }
     schedule()

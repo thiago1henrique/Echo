@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ChangeEvent, CSSProperties, FormEvent } from 'react'
+import type { ChangeEvent, CSSProperties, FormEvent, Ref } from 'react'
 import type { Period, Recap, Source } from './types'
 import { periodLabel, SOURCE_PERIODS } from './types'
 import { fetchRecap } from './lib/lastfm'
 import * as spotify from './lib/spotify'
-import { fetchLyricLines } from './lib/lyrics'
+import { fetchLyricLines, fetchSyncedLyrics } from './lib/lyrics'
+import type { SyncedLine } from './lib/lyrics'
+import { searchTracks, proxied } from './lib/images'
+import type { TrackHit } from './lib/images'
 import { downloadNodeAsPng } from './lib/exportPng'
 import { exportCardVideo, downloadBlob } from './lib/videoExport'
 import { RecapCard } from './components/RecapCard'
+import { LyricCard } from './components/LyricCard'
 import { TrackSelect } from './components/TrackSelect'
 import './App.css'
+
+type AppMode = 'recap' | 'lyric'
 
 const MAX_CLIP = 60
 
@@ -48,6 +54,8 @@ const DIMS = {
 }
 
 export default function App() {
+  // Top-level experience: the recap (top artists/tracks) or the lyric card.
+  const [appMode, setAppMode] = useState<AppMode>('recap')
   const [source, setSource] = useState<Source>(() =>
     SHOW_SPOTIFY ? (localStorage.getItem('recap_source') as Source) || 'lastfm' : 'lastfm',
   )
@@ -77,6 +85,20 @@ export default function App() {
   const [selected, setSelected] = useState<number[]>([])
   const [lyricsLoading, setLyricsLoading] = useState(false)
   const [lyricsError, setLyricsError] = useState<string | null>(null)
+
+  // Lyric-mode state (song search → pick → synced lyrics).
+  const [lyricQuery, setLyricQuery] = useState('')
+  const [lyricHits, setLyricHits] = useState<TrackHit[]>([])
+  const [searching, setSearching] = useState(false)
+  const [selectedHit, setSelectedHit] = useState<TrackHit | null>(null)
+  const [syncedLines, setSyncedLines] = useState<SyncedLine[]>([])
+  // Song time (s) that the clip's first frame maps to — the animation anchor.
+  // Set from the line the user marks (its lrclib timestamp), so that line shows
+  // at the clip start and the following lines animate in as the clip plays.
+  const [lyricOffset, setLyricOffset] = useState(0)
+  // Small manual nudge (s) on top of the anchor, to fine-tune the animation
+  // against the clip's audio. Added to lyricOffset when driving the lyrics.
+  const [lyricNudge, setLyricNudge] = useState(0)
 
   // Video-hero state
   const [videoUrl, setVideoUrl] = useState('')
@@ -133,6 +155,11 @@ export default function App() {
   const maxStart = Math.max(0, videoDur - clipLen)
   const start = Math.min(clipStart, maxStart)
 
+  // Lyric mode: album cover routed through the CORS proxy so PNG export works.
+  const coverUrl = selectedHit?.cover ? proxied(selectedHit.cover) : undefined
+  // Whether there's a card to preview/export (recap generated, or a song picked).
+  const showCard = appMode === 'recap' ? !!recap : !!selectedHit
+
   // Side-dock mock geometry. Story stays a fixed 320px (it's tall — 9:16 — so a
   // wider mock would overflow the viewport height). Feed is 16:9 and short, so
   // it can grow to fill the left gutter on wide screens: we size it to the space
@@ -166,18 +193,21 @@ export default function App() {
     }
   }, [])
 
-  // Fetch lyrics whenever the recap or the chosen song changes.
+  // Fetch lyrics whenever the recap or the chosen song changes (recap mode only;
+  // lyric mode loads lyrics on song pick instead).
   useEffect(() => {
-    if (!recap) return
+    if (appMode !== 'recap' || !recap) return
     const song = recap.topTracks[quoteSongIdx]
     if (!song) {
-      setLyricLines([])
+      setTimeout(() => setLyricLines([]), 0)
       return
     }
     let active = true
-    setLyricsLoading(true)
-    setLyricsError(null)
-    setLyricLines([])
+    setTimeout(() => {
+      setLyricsLoading(true)
+      setLyricsError(null)
+      setLyricLines([])
+    }, 0)
     fetchLyricLines(song.artist, song.name)
       .then((lines) => active && setLyricLines(lines))
       .catch((e) => active && setLyricsError(e instanceof Error ? e.message : 'Erro na letra.'))
@@ -185,14 +215,45 @@ export default function App() {
     return () => {
       active = false
     }
-  }, [recap, quoteSongIdx])
+  }, [appMode, recap, quoteSongIdx])
+
+  // Live song search: debounce the lyric query and fetch hits as the user
+  // types (no "Buscar" button). Skips the text we auto-filled after a pick.
+  useEffect(() => {
+    if (appMode !== 'lyric') return
+    const q = lyricQuery.trim()
+    if (selectedHit && lyricQuery === `${selectedHit.title} — ${selectedHit.artist}`) return
+    if (q.length < 2) {
+      setLyricHits([])
+      setSearching(false)
+      return
+    }
+    let active = true
+    setSearching(true)
+    const t = setTimeout(async () => {
+      try {
+        const hits = await searchTracks(q)
+        if (active) setLyricHits(hits)
+      } catch {
+        if (active) setError('Erro ao buscar músicas.')
+      } finally {
+        if (active) setSearching(false)
+      }
+    }, 300)
+    return () => {
+      active = false
+      clearTimeout(t)
+    }
+  }, [lyricQuery, appMode, selectedHit])
 
   // Switching to a different period shows a different dataset — clear the
   // lyric-quote selection so it isn't carried over.
   useEffect(() => {
-    setQuote('')
-    setSelected([])
-    setQuoteSongIdx(0)
+    setTimeout(() => {
+      setQuote('')
+      setSelected([])
+      setQuoteSongIdx(0)
+    }, 0)
   }, [period])
 
   async function generate(e?: FormEvent) {
@@ -230,14 +291,124 @@ export default function App() {
     setSelected([])
     setQuote('')
   }
+  // Timestamp (song seconds) of a picker line, or null when there's no synced
+  // data for it. Prefers direct index alignment (lrclib's plain & synced lists
+  // usually match 1:1); otherwise matches by text, counting occurrences so a
+  // repeated line (e.g. a chorus) resolves to the right instance.
+  function syncedTimeForLine(i: number): number | null {
+    if (syncedLines.length === 0) return null
+    if (syncedLines.length === lyricLines.length) return syncedLines[i].t
+    const text = lyricLines[i]
+    let occ = 0
+    for (let k = 0; k <= i; k++) if (lyricLines[k] === text) occ++
+    let seen = 0
+    for (const s of syncedLines) {
+      if (s.text === text && ++seen === occ) return s.t
+    }
+    return null
+  }
   function toggleLine(i: number) {
     const next = selected.includes(i) ? selected.filter((x) => x !== i) : [...selected, i]
     setSelected(next)
     setQuote([...next].sort((a, b) => a - b).map((idx) => lyricLines[idx]).join('\n'))
+    // With a video loaded, the animation anchors to the *earliest* marked line:
+    // that line shows at the clip start, and the following lines roll in as the
+    // clip plays. Anchoring to the earliest (not the last clicked) keeps the
+    // order stable regardless of the click sequence.
+    if (videoUrl && next.length > 0) {
+      const t = syncedTimeForLine(Math.min(...next))
+      if (t != null) setLyricOffset(t)
+    }
   }
   function clearQuote() {
     setQuote('')
     setSelected([])
+  }
+
+  // ---- Lyric-mode helpers ----
+  async function pickHit(hit: TrackHit) {
+    setSelectedHit(hit)
+    setLyricHits([])
+    setLyricQuery(`${hit.title} — ${hit.artist}`)
+    // A new song is a fresh dataset — reset the verse + lyrics.
+    setQuote('')
+    setSelected([])
+    setSyncedLines([])
+    setLyricOffset(0)
+    setLyricNudge(0)
+    setLyricLines([])
+    setLyricsError(null)
+    setLyricsLoading(true)
+    try {
+      const { plain, synced } = await fetchSyncedLyrics(hit.artist, hit.title)
+      setSyncedLines(synced)
+      // Prefer the plain lines for the verse picker; fall back to the synced text.
+      setLyricLines(plain.length ? plain : synced.map((s) => s.text))
+      if (plain.length === 0 && synced.length === 0) {
+        setLyricsError('Letra não encontrada. Escreva o verso à mão abaixo.')
+      }
+    } catch (e) {
+      setLyricsError(e instanceof Error ? e.message : 'Erro ao buscar a letra.')
+    } finally {
+      setLyricsLoading(false)
+    }
+  }
+
+  function changeAppMode(next: AppMode) {
+    if (next === appMode) return
+    setAppMode(next)
+    setError(null)
+    // Reset per-experience derived state so nothing carries over.
+    setQuote('')
+    setSelected([])
+    setLyricLines([])
+    setSyncedLines([])
+    setLyricOffset(0)
+    setLyricNudge(0)
+    setLyricsError(null)
+    setLyricHits([])
+    setSelectedHit(null)
+    setLyricQuery('')
+    removeVideo()
+  }
+
+  /** Renders the right card for the current mode with the given role/format. */
+  function renderCard(
+    variant: 'story' | 'feed',
+    o: { mode?: 'normal' | 'overlay'; live?: boolean; offscreen?: boolean; ref?: Ref<HTMLDivElement> } = {},
+  ) {
+    if (appMode === 'lyric') {
+      return (
+        <LyricCard
+          ref={o.ref}
+          variant={variant}
+          title={selectedHit?.title ?? ''}
+          artist={selectedHit?.artist ?? ''}
+          cover={coverUrl}
+          syncedLines={syncedLines}
+          lyricOffset={lyricOffset + lyricNudge}
+          quote={quote}
+          live={o.live}
+          mode={o.mode}
+          paused={o.offscreen}
+          {...(videoUrl
+            ? { videoUrl, videoStart: start, videoDuration: clipLen }
+            : {})}
+        />
+      )
+    }
+    return (
+      <RecapCard
+        ref={o.ref}
+        recap={recap!}
+        variant={variant}
+        quote={quote}
+        quoteSong={quoteSong}
+        mode={o.mode}
+        paused={o.offscreen}
+        {...(o.mode === 'overlay' ? { videoUrl } : videoProps)}
+      />
+    )
   }
 
   // ---- Video helpers ----
@@ -251,10 +422,25 @@ export default function App() {
     setClipStart(0)
     const probe = document.createElement('video')
     probe.preload = 'metadata'
+    const applyDur = (d: number) => {
+      const real = Number.isFinite(d) && d > 0 ? d : 0
+      setVideoDur(real)
+      setClipLen(Math.min(MAX_CLIP, real || MAX_CLIP))
+    }
     probe.onloadedmetadata = () => {
-      const d = probe.duration || 0
-      setVideoDur(d)
-      setClipLen(Math.min(MAX_CLIP, d || MAX_CLIP))
+      // Some containers (e.g. many WebM/MediaRecorder files) report the duration
+      // as Infinity until the element seeks to the end. Force that so the clip
+      // controls clamp to the real length instead of over-running on export.
+      if (Number.isFinite(probe.duration) && probe.duration > 0) {
+        applyDur(probe.duration)
+        return
+      }
+      const onSeeked = () => {
+        probe.removeEventListener('seeked', onSeeked)
+        applyDur(probe.duration)
+      }
+      probe.addEventListener('seeked', onSeeked)
+      probe.currentTime = 1e101
     }
     probe.src = url
   }
@@ -268,13 +454,24 @@ export default function App() {
   }
 
   // ---- Exports ----
+  /** Slugified base filename for downloads, valid in both recap and lyric mode. */
+  function exportName(kind: 'story' | 'feed') {
+    const slug = (s: string) =>
+      s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'echo'
+    const base =
+      appMode === 'lyric'
+        ? `letra-${slug(`${selectedHit?.title ?? ''}-${selectedHit?.artist ?? ''}`)}`
+        : `recap-${recap?.user ?? 'echo'}-${recap?.period ?? ''}`
+    return `${base}-${kind}`
+  }
+
   async function handlePngExport(kind: 'story' | 'feed') {
     const node = kind === 'story' ? storyRef.current : feedRef.current
-    if (!node || !recap) return
+    if (!node || !showCard) return
     setExporting(kind)
     setVstatus('Gerando imagem…')
     try {
-      await downloadNodeAsPng(node, `recap-${recap.user}-${recap.period}-${kind}.png`)
+      await downloadNodeAsPng(node, `${exportName(kind)}.png`)
     } catch {
       setError('Falha ao gerar o PNG. Tente gerar o recap novamente.')
     } finally {
@@ -286,7 +483,7 @@ export default function App() {
   async function handleVideoExport(kind: 'story' | 'feed', customDuration?: number) {
     const overlayNode = kind === 'story' ? overlayStoryRef.current : overlayFeedRef.current
     const video = exportVideoRef.current
-    if (!overlayNode || !video || !recap) return
+    if (!overlayNode || !video || !showCard) return
 
     const duration = customDuration ?? clipLen
     const maxStartForDur = Math.max(0, videoDur - duration)
@@ -302,8 +499,12 @@ export default function App() {
         start: startForExport,
         duration: duration,
         onStatus: setVstatus,
+        lyric:
+          appMode === 'lyric' && syncedLines.length > 0
+            ? { lines: syncedLines, variant: kind, offset: lyricOffset + lyricNudge }
+            : undefined,
       })
-      downloadBlob(blob, `recap-${recap.user}-${recap.period}-${kind}.${ext}`)
+      downloadBlob(blob, `${exportName(kind)}.${ext}`)
       if (ext === 'webm') {
         setError(
           'Não consegui gerar MP4 neste navegador (o conversor falhou) — baixei em WebM. ' +
@@ -389,6 +590,30 @@ export default function App() {
         </p>
       </header>
 
+      {/* Top-level mode switch: the recap experience or the lyric card. */}
+      <div className="segmented segmented--mode">
+        <span
+          className="segmented__slider"
+          style={{ width: '50%', transform: `translateX(${appMode === 'lyric' ? 100 : 0}%)` }}
+        />
+        <button
+          type="button"
+          className={`segmented__opt ${appMode === 'recap' ? 'is-active' : ''}`}
+          onClick={() => changeAppMode('recap')}
+        >
+          Top álbuns
+        </button>
+        <button
+          type="button"
+          className={`segmented__opt ${appMode === 'lyric' ? 'is-active' : ''}`}
+          onClick={() => changeAppMode('lyric')}
+        >
+          Letra
+        </button>
+      </div>
+
+      {appMode === 'recap' && (
+      <>
       {/* Source selector: choose between Last.fm and Spotify. */}
       {SHOW_SPOTIFY && (
       <div className="segmented segmented--source">
@@ -507,13 +732,55 @@ export default function App() {
           </button>
         )}
       </form>
+      </>
+      )}
+
+      {appMode === 'lyric' && (
+        <div className="lyric-search">
+          <input
+            className="input input--user"
+            placeholder="nome da música…"
+            value={lyricQuery}
+            onChange={(e) => setLyricQuery(e.target.value)}
+            autoComplete="off"
+          />
+          {searching && lyricHits.length === 0 && (
+            <div className="lyric-hits lyric-hits--status">Buscando…</div>
+          )}
+          {lyricHits.length > 0 && (
+            <ul className="lyric-hits" role="listbox">
+              {lyricHits.map((hit) => (
+                <li key={hit.id} role="option" aria-selected={selectedHit?.id === hit.id}>
+                  <button
+                    type="button"
+                    className={`lyric-hit ${selectedHit?.id === hit.id ? 'is-active' : ''}`}
+                    onClick={() => pickHit(hit)}
+                  >
+                    {hit.cover ? (
+                      <img className="lyric-hit__cover" src={proxied(hit.cover, 96)} alt="" />
+                    ) : (
+                      <span className="lyric-hit__cover lyric-hit__cover--empty" />
+                    )}
+                    <span className="lyric-hit__meta">
+                      <span className="lyric-hit__title">{hit.title}</span>
+                      <span className="lyric-hit__sub">
+                        {[hit.artist, hit.album].filter(Boolean).join(' · ')}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {error && <p className="error">{error}</p>}
       {generated && !recap && !loading && !error && (
         <p className="quote-editor__hint">Sem dados para este período.</p>
       )}
 
-      {recap && (
+      {showCard && (
         <>
           {/* Format toggle — drives which layout the preview below shows. */}
           <div className="segmented segmented--format">
@@ -545,10 +812,10 @@ export default function App() {
             >
               <div
                 className="preview__anim"
-                key={`${period}-${previewFmt}`}
+                key={`${appMode}-${selectedHit?.id ?? period}-${previewFmt}`}
                 style={{ transform: `scale(${previewScale})` }}
               >
-                <RecapCard recap={recap} variant={previewFmt} quote={quote} quoteSong={quoteSong} {...videoProps} />
+                {renderCard(previewFmt, { live: appMode === 'lyric' && !!videoUrl })}
               </div>
             </div>
           </div>
@@ -568,13 +835,7 @@ export default function App() {
               </span>
               <div className="video-dock__phone" style={{ height: dockH }}>
                 <div className="video-dock__scale" style={{ transform: `scale(${dockScale})` }}>
-                  <RecapCard
-                    recap={recap}
-                    variant={previewFmt}
-                    quote={quote}
-                    quoteSong={quoteSong}
-                    {...videoProps}
-                  />
+                  {renderCard(previewFmt, { live: appMode === 'lyric' && !!videoUrl })}
                 </div>
               </div>
             </aside>
@@ -763,13 +1024,7 @@ export default function App() {
               </span>
               <div className="video-dock__phone" style={{ height: dockH }}>
                 <div className="video-dock__scale" style={{ transform: `scale(${dockScale})` }}>
-                  <RecapCard
-                    recap={recap}
-                    variant={previewFmt}
-                    quote={quote}
-                    quoteSong={quoteSong}
-                    {...videoProps}
-                  />
+                  {renderCard(previewFmt, { live: appMode === 'lyric' && !!videoUrl })}
                 </div>
               </div>
             </section>
@@ -780,18 +1035,43 @@ export default function App() {
               <span className="eyebrow">Encarte</span>
               <h2 className="panel__title">Verso em destaque</h2>
               <p className="panel__lead">
-                Marque os versos da letra e eles saem impressos no card.
+                {appMode === 'lyric'
+                  ? 'No PNG sai o verso marcado. No vídeo, marque a linha cantada no início do clipe: ela aparece primeiro e as seguintes vão surgindo animadas.'
+                  : 'Marque os versos da letra e eles saem impressos no card.'}
               </p>
             </div>
 
-            <div className="encarte__field">
-              <span className="field__label">Faixa</span>
-              <TrackSelect
-                tracks={recap.topTracks}
-                value={quoteSongIdx}
-                onChange={selectSong}
-              />
-            </div>
+            {appMode === 'recap' && recap && (
+              <div className="encarte__field">
+                <span className="field__label">Faixa</span>
+                <TrackSelect
+                  tracks={recap.topTracks}
+                  value={quoteSongIdx}
+                  onChange={selectSong}
+                />
+              </div>
+            )}
+
+            {appMode === 'lyric' && videoUrl && syncedLines.length > 0 && (
+              <label className="encarte__field">
+                <span className="field__label">
+                  Ajuste fino da sincronia: {lyricNudge > 0 ? '+' : ''}
+                  {lyricNudge.toFixed(1)}s
+                </span>
+                <input
+                  type="range"
+                  min={-5}
+                  max={5}
+                  step={0.1}
+                  value={lyricNudge}
+                  onChange={(e) => setLyricNudge(Number(e.target.value))}
+                />
+                <span className="panel__hint">
+                  Marque a linha cantada no começo do clipe para ancorar a
+                  animação; use este controle para acertar o tempo com o áudio.
+                </span>
+              </label>
+            )}
 
             {lyricsLoading && <p className="quote-editor__hint">Buscando letra…</p>}
             {lyricsError && <p className="error">{lyricsError}</p>}
@@ -849,19 +1129,19 @@ export default function App() {
       )}
 
       {/* Off-screen render targets (kept in DOM, out of view). */}
-      {recap && (
+      {showCard && (
         <div className="offscreen" aria-hidden>
-          <RecapCard ref={storyRef} recap={recap} variant="story" quote={quote} quoteSong={quoteSong} {...videoProps} />
-          <RecapCard ref={feedRef} recap={recap} variant="feed" quote={quote} quoteSong={quoteSong} {...videoProps} />
-          <RecapCard ref={overlayStoryRef} recap={recap} variant="story" mode="overlay" quote={quote} quoteSong={quoteSong} videoUrl={videoUrl} />
-          <RecapCard ref={overlayFeedRef} recap={recap} variant="feed" mode="overlay" quote={quote} quoteSong={quoteSong} videoUrl={videoUrl} />
+          {renderCard('story', { ref: storyRef, offscreen: true })}
+          {renderCard('feed', { ref: feedRef, offscreen: true })}
+          {renderCard('story', { mode: 'overlay', ref: overlayStoryRef, offscreen: true })}
+          {renderCard('feed', { mode: 'overlay', ref: overlayFeedRef, offscreen: true })}
           {videoUrl && (
             <video ref={exportVideoRef} src={videoUrl} muted playsInline preload="auto" />
           )}
         </div>
       )}
 
-      {recap?.source === 'lastfm' && (
+      {appMode === 'recap' && recap?.source === 'lastfm' && (
         <p className="disclaimer">
           * minutos são estimados (scrobbles no período × duração média das faixas) — o
           Last.fm não expõe tempo real de escuta.
@@ -869,7 +1149,7 @@ export default function App() {
       )}
     </div>
 
-    {recap && (
+    {showCard && (
       <footer className="site-footer">
         <a
           className="site-footer__credit"

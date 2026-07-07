@@ -935,6 +935,125 @@
   margin-top: 12px;
 }
 
+/* ---- lyric mode: top switch, song search + results ---- */
+.segmented--mode {
+  max-width: 360px;
+  margin: 0 auto 24px;
+}
+/* Song search: single full-width input with a live dropdown of results. */
+.lyric-search {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto 24px;
+}
+.lyric-search .input--user {
+  width: 100%;
+}
+.lyric-hits {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  /* Scrollbar in the site's palette: a thin track that fades into the surface,
+     a border-toned thumb that warms to the accent on hover (Firefox). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.lyric-hits::-webkit-scrollbar {
+  width: 10px;
+}
+.lyric-hits::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+.lyric-hits::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  /* Inset the thumb from the track edge so it reads as a slim pill. */
+  border: 2px solid var(--surface);
+  background-clip: padding-box;
+}
+.lyric-hits::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+  background-clip: padding-box;
+}
+.lyric-hits--status {
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+}
+.lyric-hit {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font: inherit;
+  text-align: left;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-h);
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+.lyric-hit:hover {
+  background: var(--bg);
+}
+.lyric-hit.is-active {
+  background: var(--accent-bg);
+}
+.lyric-hit__cover {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--bg);
+}
+.lyric-hit__cover--empty {
+  border: 1px solid var(--border);
+}
+.lyric-hit__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.lyric-hit__title {
+  font-weight: 600;
+  color: var(--text-h);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lyric-hit__sub {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lyric-hit.is-active .lyric-hit__sub {
+  color: var(--accent);
+}
+
 /* ---- runout-groove footer ---- */
 .disclaimer {
   margin-top: 48px;

@@ -408,7 +408,7 @@ video.card__hero-img {
   height: 46px;
 }
 .card--story .card__quote-lines {
-  font-size: 40px;
+  font-size: 72px;
 }
 .card--story .card__quote-cite {
   font-size: 26px;
@@ -499,7 +499,7 @@ video.card__hero-img {
   margin-top: 18px;
 }
 .card--feed .card__quote-lines {
-  font-size: 30px;
+  font-size: 40px;
 }
 .card--feed .card__quote-cite {
   font-size: 22px;

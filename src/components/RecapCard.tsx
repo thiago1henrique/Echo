@@ -1,7 +1,8 @@
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { forwardRef } from 'react'
 import type { Recap } from '../types'
 import { periodLabel, SOURCE_LABEL } from '../types'
 import { fmt, minutesLabel, plays } from '../lib/format'
+import { FadeImg, HeroVideo } from './cardMedia'
 import './RecapCard.css'
 
 export type CardVariant = 'story' | 'feed'
@@ -24,78 +25,8 @@ interface Props {
    * to capture the static overlay that is composited over the video on export.
    */
   mode?: 'normal' | 'overlay'
-}
-
-/**
- * <img> that fades (and, on the hero, gently zooms) in once the pixels are
- * decoded, so photos don't pop in abruptly. Cached images fire no onLoad, so we
- * also check `complete` via the ref. crossOrigin is kept for canvas export.
- */
-function FadeImg({ className, src }: { className: string; src: string }) {
-  const [loaded, setLoaded] = useState(false)
-  return (
-    <img
-      className={`${className} fade-img${loaded ? ' is-loaded' : ''}`}
-      src={src}
-      crossOrigin="anonymous"
-      alt=""
-      onLoad={() => setLoaded(true)}
-      ref={(el) => {
-        if (el?.complete) setLoaded(true)
-      }}
-    />
-  )
-}
-
-/** Loops the chosen [start, start+duration] segment of the uploaded video. */
-function HeroVideo({
-  src,
-  start,
-  duration,
-}: {
-  src: string
-  start: number
-  duration: number
-}) {
-  const ref = useRef<HTMLVideoElement>(null)
-  useEffect(() => {
-    const v = ref.current
-    if (!v) return
-    const seekStart = () => {
-      try {
-        v.currentTime = start
-      } catch {
-        /* not ready yet */
-      }
-    }
-    const onLoaded = () => {
-      seekStart()
-      v.play().catch(() => {})
-    }
-    const onTime = () => {
-      if (v.currentTime >= start + duration || v.currentTime < start - 0.1) v.currentTime = start
-    }
-    v.addEventListener('loadedmetadata', onLoaded)
-    v.addEventListener('timeupdate', onTime)
-    seekStart()
-    v.play().catch(() => {})
-    return () => {
-      v.removeEventListener('loadedmetadata', onLoaded)
-      v.removeEventListener('timeupdate', onTime)
-    }
-  }, [src, start, duration])
-
-  return (
-    <video
-      ref={ref}
-      className="card__hero-img"
-      src={src}
-      muted
-      loop
-      playsInline
-      autoPlay
-    />
-  )
+  /** Whether the hero video should be paused (disable playback & CPU usage off-screen). */
+  paused?: boolean
 }
 
 /**
@@ -105,7 +36,7 @@ function HeroVideo({
  */
 export const RecapCard = forwardRef<HTMLDivElement, Props>(
   (
-    { recap, variant, quote, quoteSong, videoUrl, videoStart = 0, videoDuration = 15, mode = 'normal' },
+    { recap, variant, quote, quoteSong, videoUrl, videoStart = 0, videoDuration = 15, mode = 'normal', paused = false },
     ref,
   ) => {
   const { minutes, hours } = minutesLabel(recap.minutes ?? 0)
@@ -121,7 +52,7 @@ export const RecapCard = forwardRef<HTMLDivElement, Props>(
     <div ref={ref} className={`card card--${variant} card--${recap.source} ${overlay ? 'card--overlay' : ''} ${videoUrl ? 'card--has-video' : ''}`}>
       <div className="card__hero">
         {overlay ? null : videoUrl ? (
-          <HeroVideo src={videoUrl} start={videoStart} duration={videoDuration} />
+          <HeroVideo src={videoUrl} start={videoStart} duration={videoDuration} paused={paused} />
         ) : recap.heroImage ? (
           <FadeImg className="card__hero-img" src={recap.heroImage} />
         ) : (

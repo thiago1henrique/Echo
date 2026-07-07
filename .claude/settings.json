@@ -15,7 +15,17 @@
       "Bash(npm run *)",
       "Bash(pkill -f msedge)",
       "Bash(curl -s \"http://127.0.0.1:5199/api/deezer?type=artist&q=Radiohead\")",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "PowerShell(npx tsc -b --noEmit 2>&1)",
+      "PowerShell(npm run lint 2>&1)",
+      "PowerShell(npm run lint 2>&1 | Select-String -Pattern \"\\(App|deezer|lyrics|images|LyricCard|cardMedia|videoExport|RecapCard\\)\\\\.\\(ts|tsx\\)|react-hooks|no-useless|error \" | ForEach-Object { $_.Line })",
+      "Bash(python -c \"import urllib.parse;print\\(urllib.parse.quote\\('bohemian rhapsody'\\)\\)\")",
+      "Bash(curl -s \"http://127.0.0.1:5173/api/deezer?type=track&limit=5&q=$\\(python -c \"import urllib.parse;print\\(urllib.parse.quote\\('bohemian rhapsody'\\)\\)\" || echo 'bohemian%20rhapsody'\\)\")",
+      "Bash(curl -s \"https://lrclib.net/api/get?artist_name=Queen&track_name=Bohemian%20Rhapsody\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); s=d.get\\('syncedLyrics'\\) or ''; print\\('HAS syncedLyrics:', bool\\(s\\)\\); print\\('first 200 chars:'\\); print\\(s[:200]\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(curl -s \"http://127.0.0.1:5173/api/lyrics?artist=Queen&track=Bohemian%20Rhapsody\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:5173/api/lyrics?artist=Queen&track=Bohemian%20Rhapsody\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\thiag\\AppData\\Local\\Temp\\claude\\d--Dev-Pessoal-Echo\\82dd5f53-108c-410b-9283-f0e28462d9cf\\scratchpad"

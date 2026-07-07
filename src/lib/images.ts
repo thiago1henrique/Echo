@@ -17,12 +17,29 @@ interface DeezerArtistSearch {
 }
 
 interface DeezerAlbum {
+  title?: string
   cover_xl?: string
   cover_big?: string
   cover_medium?: string
 }
+interface DeezerTrack {
+  id?: number
+  title?: string
+  artist?: { name?: string }
+  album?: DeezerAlbum
+}
 interface DeezerTrackSearch {
-  data?: { album?: DeezerAlbum }[]
+  data?: DeezerTrack[]
+}
+
+/** A track hit from Deezer search, carrying its album cover art. */
+export interface TrackHit {
+  id: number
+  title: string
+  artist: string
+  album: string
+  /** Best available album cover URL, or undefined. */
+  cover?: string
 }
 
 /** Returns a real artist photo URL from Deezer, or undefined if not found. */
@@ -56,6 +73,43 @@ export async function fetchTrackCover(
   } catch (err) {
     console.error("fetchTrackCover failed for:", artist, track, err)
     return undefined
+  }
+}
+
+/**
+ * Searches Deezer for tracks matching a free-text query, returning up to `limit`
+ * hits with their album cover art. Used by the lyric mode to let the user pick a
+ * song (and thus its album cover) by name.
+ */
+export async function searchTracks(query: string, limit = 8): Promise<TrackHit[]> {
+  const q = query.trim()
+  if (!q) return []
+  try {
+    const url = `/api/deezer?type=track&limit=${limit}&q=${encodeURIComponent(q)}`
+    const res = await fetch(url)
+    if (!res.ok) return []
+    const data = (await res.json()) as DeezerTrackSearch
+    const hits = (data.data ?? [])
+      .filter((t): t is DeezerTrack & { id: number } => typeof t.id === 'number')
+      .map((t) => ({
+        id: t.id,
+        title: t.title ?? '',
+        artist: t.artist?.name ?? '',
+        album: t.album?.title ?? '',
+        cover: t.album?.cover_xl || t.album?.cover_big || t.album?.cover_medium || undefined,
+      }))
+    // Deezer often returns the same track from multiple albums/singles; dedupe by
+    // "title — artist" so the picker isn't cluttered with near-identical rows.
+    const seen = new Set<string>()
+    return hits.filter((h) => {
+      const key = `${h.title.toLowerCase()}—${h.artist.toLowerCase()}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  } catch (err) {
+    console.error('searchTracks failed for:', query, err)
+    return []
   }
 }
 

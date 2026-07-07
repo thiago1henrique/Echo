@@ -13,13 +13,13 @@ interface Res {
 export default async function handler(req: Req, res: Res) {
   const q = String(req.query.q ?? '')
   const type = String(req.query.type ?? 'artist')
+  // Clamp the requested result count to a sane range (default 1, max 25).
+  const limit = Math.min(25, Math.max(1, Number(req.query.limit) || 1))
 
-  let upstreamUrl = ''
-  if (type === 'artist') {
-    upstreamUrl = `https://api.deezer.com/search/artist?limit=1&q=${encodeURIComponent(q)}`
-  } else {
-    upstreamUrl = `https://api.deezer.com/search?limit=1&q=${encodeURIComponent(q)}`
-  }
+  const upstreamUrl =
+    type === 'artist'
+      ? `https://api.deezer.com/search/artist?limit=${limit}&q=${encodeURIComponent(q)}`
+      : `https://api.deezer.com/search?limit=${limit}&q=${encodeURIComponent(q)}`
 
   try {
     const upstream = await fetch(upstreamUrl)

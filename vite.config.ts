@@ -14,6 +14,7 @@ function apiDev(env: Record<string, string>): Plugin {
   const routes: Record<string, string> = {
     '/api/lastfm': '/api/lastfm.ts',
     '/api/deezer': '/api/deezer.ts',
+    '/api/lyrics': '/api/lyrics.ts',
   }
   return {
     name: 'api-dev',

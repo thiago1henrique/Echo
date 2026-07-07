@@ -1,0 +1,115 @@
+/* Single-song lyric card. Reuses .card / .card__hero* from RecapCard.css; this
+   file only styles the lyric body (media up top, lyrics below). */
+
+.card--lyric .card__body {
+  justify-content: space-between;
+}
+
+/* Echo wordmark badge in the hero's top-left corner. */
+.card__brand {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  color: var(--c-accent);
+  z-index: 2;
+}
+.card__brand-mark {
+  display: block;
+  width: auto;
+}
+.card__brand-name {
+  font-family: var(--c-display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
+  color: var(--c-text);
+}
+
+/* Lyric area: fills the body and centers the lines. In overlay mode it holds an
+   empty slot the video compositor draws the active line into, so its box must be
+   the same size whether it shows text or not. */
+.card__lyric {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  overflow: hidden;
+}
+.card__lyric-slot {
+  width: 100%;
+  height: 100%;
+}
+.card__lyric-line {
+  font-family: var(--c-display);
+  font-weight: 700;
+  line-height: 1.22;
+  color: var(--c-muted);
+  opacity: 0.4;
+  overflow-wrap: anywhere;
+  transition: opacity 0.25s ease, color 0.25s ease;
+}
+.card__lyric-line.is-active {
+  color: var(--c-text);
+  opacity: 1;
+}
+.card__lyric-cite {
+  flex: none;
+  font-family: var(--c-mono);
+  color: var(--c-accent);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+
+/* =================== STORY (1080 × 1920) =================== */
+.card--story .card__brand {
+  padding: 60px;
+  gap: 16px;
+}
+.card--story .card__brand-mark {
+  height: 40px;
+}
+.card--story .card__brand-name {
+  font-size: 32px;
+}
+.card--story .card__lyric {
+  gap: 26px;
+  padding: 20px 10px;
+}
+.card--story .card__lyric-line {
+  font-size: 46px;
+}
+.card--story .card__lyric-cite {
+  margin-top: 30px;
+  font-size: 26px;
+}
+
+/* =================== FEED (1600 × 900) =================== */
+.card--feed .card__brand {
+  padding: 50px;
+  gap: 12px;
+}
+.card--feed .card__brand-mark {
+  height: 32px;
+}
+.card--feed .card__brand-name {
+  font-size: 26px;
+}
+.card--feed .card__lyric {
+  gap: 16px;
+  padding: 10px;
+}
+.card--feed .card__lyric-line {
+  font-size: 34px;
+}
+.card--feed .card__lyric-cite {
+  margin-top: 20px;
+  font-size: 22px;
+}
