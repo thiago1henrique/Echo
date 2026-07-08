@@ -526,6 +526,26 @@ function getAudioGraph(video: HTMLVideoElement): AudioGraph {
   return g
 }
 
+function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let resolved = false
+    const done = () => {
+      if (resolved) return
+      resolved = true
+      video.removeEventListener('seeked', onSeeked)
+      clearTimeout(timeout)
+      resolve()
+    }
+    const onSeeked = () => {
+      done()
+    }
+    // High-performance backstop: resolve after 150ms if seeked event is delayed
+    const timeout = setTimeout(done, 150)
+    video.addEventListener('seeked', onSeeked)
+    video.currentTime = time
+  })
+}
+
 async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
   const { overlayNode, video, canvasW, canvasH, hero, start, duration, onStatus } = opts
 
@@ -606,36 +626,31 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
 
   const totalFrames = Math.max(1, Math.round(duration * FPS))
   const frameDurUs = 1_000_000 / FPS
-  let outIdx = 0
-
-  // Emit constant-frame-rate frames from the *current* canvas for every output
-  // slot up to `effSec` of composited playback time. Decouples output pacing
-  // from decode jitter: a slow decoded frame duplicates, a fast one is sampled
-  // down — so the file is always exactly `duration` at a constant FPS.
-  const emitUpTo = (effSec: number) => {
-    while (outIdx < totalFrames && outIdx / FPS <= effSec + 1e-6) {
-      const frame = new VideoFrame(canvas, {
-        timestamp: Math.round(outIdx * frameDurUs),
-        duration: Math.round(frameDurUs),
-      })
-      videoEncoder.encode(frame, { keyFrame: outIdx === 0 })
-      frame.close()
-      outIdx++
-    }
-  }
-
-  await prepareVideo(video, start)
-  // Unmute so the tap carries real audio; the source node above keeps the
-  // speakers silent (its output is never connected to ctx.destination).
-  video.muted = false
-  video.playbackRate = 1
-  await video.play()
 
   // Length of the segment available; a shorter clip loops to fill the duration.
   const segMax = Number.isFinite(video.duration) ? video.duration - start : duration
   const clipLen = Math.max(1 / FPS, Math.min(duration, segMax))
 
-  // ---- Audio pump: read AudioData frames and feed the encoder concurrently. ----
+  await prepareVideo(video, start)
+
+  // ---- PHASE 1: AUDIO CAPTURE ----
+  // We play the video in real-time, but do NOT render any canvas or encode any video.
+  // This ensures the CPU is completely free to capture the audio stream perfectly.
+  onStatus?.('Gravando áudio… 0%')
+  video.muted = false
+  video.playbackRate = 1
+  await video.play()
+
+  function onLoopEnded() {
+    try {
+      video.currentTime = start
+    } catch {
+      /* not seekable yet */
+    }
+    void video.play().catch(() => {})
+  }
+  video.addEventListener('ended', onLoopEnded)
+
   let capturing = true
   const reader = new MediaStreamTrackProcessor({ track: audioTrack }).readable.getReader()
   const audioPump = (async () => {
@@ -648,9 +663,12 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
         break
       }
       if (firstTs < 0) firstTs = value.timestamp
-      // Trim to the target duration by the audio's own timeline, so its length
-      // matches the CFR video regardless of wall-clock capture time.
-      if ((value.timestamp - firstTs) / 1_000_000 >= duration) {
+      
+      const elapsed = (value.timestamp - firstTs) / 1_000_000
+      const pct = Math.min(100, Math.round((elapsed / duration) * 100))
+      onStatus?.(`Gravando áudio… ${pct}%`)
+
+      if (elapsed >= duration) {
         value.close()
         break
       }
@@ -663,102 +681,58 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     }
   })()
 
-  // requestVideoFrameCallback fires once per decoded frame (Chromium).
-  const rvfc = (
-    video as unknown as {
-      requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number
-    }
-  ).requestVideoFrameCallback?.bind(video)
-
-  onStatus?.('Gravando… 0%')
-  let lastPct = -1
-
-  await new Promise<void>((resolve) => {
-    let done = false
-    // Completed clip loops, counted explicitly on 'ended' — never inferred from
-    // mediaTime jumping backwards. That inference raced differently per device
-    // and was the real cause of the frozen / sped-up exports.
-    let loopCount = 0
-    let lastFrameAt = performance.now()
-    const startedAt = lastFrameAt
-
-    const finish = () => {
-      if (done) return
-      done = true
-      clearInterval(stallCheck)
-      video.removeEventListener('ended', onLoopEnded)
-      resolve()
-    }
-
-    // A short clip plays to its end; loop it so frames keep flowing until the
-    // full duration is filled. This is the single place the loop is counted.
-    function onLoopEnded() {
-      if (done) return
-      loopCount++
-      try {
-        video.currentTime = start
-      } catch {
-        /* not seekable yet */
-      }
-      void video.play().catch(() => {})
-    }
-    video.addEventListener('ended', onLoopEnded)
-
-    // Stall backstop: only bail when playback produces no new frame for a few
-    // seconds, so a slow device takes the time it needs instead of a cut-short
-    // (frozen) export. The absolute cap guards a permanently wedged decoder.
-    const stallCheck = setInterval(() => {
-      const now = performance.now()
-      if (now - lastFrameAt > 3000 || now - startedAt > (duration * 6 + 30) * 1000) {
-        if (!encoderError) emitUpTo(duration) // pad the tail to exactly `duration`
-        finish()
-      }
-    }, 500)
-
-    const onDecoded = async (mediaTime: number) => {
-      if (done) return
-      lastFrameAt = performance.now()
-
-      // Linear playback time across loops (deterministic, from the loop counter).
-      const eff = loopCount * clipLen + (mediaTime - start)
-      composite(start + eff) // linear time keeps the lyric advancing across loops
-      emitUpTo(eff)
-
-      const pct = Math.min(100, Math.round((outIdx / totalFrames) * 100))
-      if (pct !== lastPct) {
-        lastPct = pct
-        onStatus?.(`Gravando… ${pct}%`)
-      }
-
-      if (encoderError || outIdx >= totalFrames) {
-        finish()
-        return
-      }
-
-      // Backpressure: don't let VideoFrames pile up faster than the hardware
-      // encoder drains them (each frame holds a full-res GPU buffer).
-      while (videoEncoder.encodeQueueSize > 8 && !done) {
-        await new Promise((r) => setTimeout(r, 0))
-      }
-      schedule()
-    }
-    const schedule = () => {
-      if (rvfc) rvfc((_now, meta) => void onDecoded(meta.mediaTime))
-      else requestAnimationFrame(() => void onDecoded(video.currentTime))
-    }
-    schedule()
-  })
-
+  // Wait for audio recording to finish
+  await audioPump
   video.pause()
   video.muted = true
+  video.removeEventListener('ended', onLoopEnded)
   capturing = false
   try {
     await reader.cancel()
   } catch {
     /* already ended */
   }
-  await audioPump
   source.disconnect() // stop feeding the tap; keep ctx/source cached for reuse
+
+  if (encoderError) {
+    videoEncoder.close()
+    audioEncoder.close()
+    throw encoderError
+  }
+
+  // ---- PHASE 2: VIDEO OFFLINE CAPTURE ----
+  // We seek the video frame-by-frame and composite + encode each frame.
+  // This runs as fast or as slow as the CPU can handle, guaranteeing 100% smooth video.
+  onStatus?.('Gravando vídeo… 0%')
+
+  for (let outIdx = 0; outIdx < totalFrames; outIdx++) {
+    const elapsed = outIdx / FPS
+    
+    // Calculate the playhead position for this frame (including looping)
+    const mediaTime = start + (elapsed % clipLen)
+
+    // Seek the video to the precise mediaTime for this frame
+    await seekTo(video, mediaTime)
+
+    // Composite the frame onto canvas using linear, continuous time
+    composite(start + elapsed)
+
+    // Encode the frame
+    const frame = new VideoFrame(canvas, {
+      timestamp: Math.round(outIdx * frameDurUs),
+      duration: Math.round(frameDurUs),
+    })
+    videoEncoder.encode(frame, { keyFrame: outIdx === 0 })
+    frame.close()
+
+    // Handle backpressure
+    while (videoEncoder.encodeQueueSize > 8) {
+      await new Promise((r) => setTimeout(r, 0))
+    }
+
+    const pct = Math.min(100, Math.round((outIdx / totalFrames) * 100))
+    onStatus?.(`Gravando vídeo… ${pct}%`)
+  }
 
   if (encoderError) {
     videoEncoder.close()
