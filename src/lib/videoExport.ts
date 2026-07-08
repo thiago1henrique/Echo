@@ -590,19 +590,14 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
 
   const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero, overlayNode, preparedLyric, start)
 
-  await prepareVideo(video, start)
-  // Unmute so the tap carries real audio; the source node above keeps the
-  // speakers silent (its output is never connected to ctx.destination).
-  video.muted = false
-  await video.play()
-
   const totalFrames = Math.max(1, Math.round(duration * FPS))
   const frameDurUs = 1_000_000 / FPS
   let outIdx = 0
 
   // Emit constant-frame-rate frames from the *current* canvas for every output
   // slot up to `effSec` of composited playback time. Decouples output pacing
-  // from decode jitter: a slow frame duplicates, a fast one is sampled down.
+  // from decode jitter: a slow decoded frame duplicates, a fast one is sampled
+  // down — so the file is always exactly `duration` at a constant FPS.
   const emitUpTo = (effSec: number) => {
     while (outIdx < totalFrames && outIdx / FPS <= effSec + 1e-6) {
       const frame = new VideoFrame(canvas, {
@@ -615,15 +610,26 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     }
   }
 
+  await prepareVideo(video, start)
+  // Unmute so the tap carries real audio; the source node above keeps the
+  // speakers silent (its output is never connected to ctx.destination).
+  video.muted = false
+  video.playbackRate = 1
+  await video.play()
+
+  // Length of the segment available; a shorter clip loops to fill the duration.
+  const segMax = Number.isFinite(video.duration) ? video.duration - start : duration
+  const clipLen = Math.max(1 / FPS, Math.min(duration, segMax))
+
   // ---- Audio pump: read AudioData frames and feed the encoder concurrently. ----
-  let audioStop = false
+  let capturing = true
   const reader = new MediaStreamTrackProcessor({ track: audioTrack }).readable.getReader()
   const audioPump = (async () => {
     let firstTs = -1
     for (;;) {
       const { value, done } = await reader.read()
       if (done) break
-      if (audioStop || encoderError) {
+      if (!capturing || encoderError) {
         value.close()
         break
       }
@@ -643,7 +649,7 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     }
   })()
 
-  // Pull video frames. requestVideoFrameCallback fires once per decoded frame.
+  // requestVideoFrameCallback fires once per decoded frame (Chromium).
   const rvfc = (
     video as unknown as {
       requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number
@@ -651,18 +657,30 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
   ).requestVideoFrameCallback?.bind(video)
 
   onStatus?.('Gravando… 0%')
-  let lastMedia = -1
-  let base = 0 // accumulated playback time across loop restarts
   let lastPct = -1
 
   await new Promise<void>((resolve) => {
     let done = false
-    // If the clip is shorter than the requested duration it plays to its end
-    // and pauses — rVFC then stops firing, so without this the frozen last
-    // frame gets padded over the remaining audio. Restart the segment on
-    // 'ended' so frames keep flowing and the clip loops to fill the duration.
+    // Completed clip loops, counted explicitly on 'ended' — never inferred from
+    // mediaTime jumping backwards. That inference raced differently per device
+    // and was the real cause of the frozen / sped-up exports.
+    let loopCount = 0
+    let lastFrameAt = performance.now()
+    const startedAt = lastFrameAt
+
+    const finish = () => {
+      if (done) return
+      done = true
+      clearInterval(stallCheck)
+      video.removeEventListener('ended', onLoopEnded)
+      resolve()
+    }
+
+    // A short clip plays to its end; loop it so frames keep flowing until the
+    // full duration is filled. This is the single place the loop is counted.
     function onLoopEnded() {
       if (done) return
+      loopCount++
       try {
         video.currentTime = start
       } catch {
@@ -670,27 +688,26 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
       }
       void video.play().catch(() => {})
     }
-    const finish = () => {
-      if (done) return
-      done = true
-      clearTimeout(watchdog)
-      video.removeEventListener('ended', onLoopEnded)
-      resolve()
-    }
     video.addEventListener('ended', onLoopEnded)
-    // rVFC only fires on new decoded frames, so a stalled clip would hang the
-    // loop. This wall-clock backstop guarantees we stop.
-    const watchdog = setTimeout(finish, (duration + 4) * 1000)
+
+    // Stall backstop: only bail when playback produces no new frame for a few
+    // seconds, so a slow device takes the time it needs instead of a cut-short
+    // (frozen) export. The absolute cap guards a permanently wedged decoder.
+    const stallCheck = setInterval(() => {
+      const now = performance.now()
+      if (now - lastFrameAt > 3000 || now - startedAt > (duration * 6 + 30) * 1000) {
+        if (!encoderError) emitUpTo(duration) // pad the tail to exactly `duration`
+        finish()
+      }
+    }, 500)
 
     const onDecoded = async (mediaTime: number) => {
       if (done) return
-      composite(mediaTime)
+      lastFrameAt = performance.now()
 
-      // Detect a loop restart (mediaTime jumped backwards) and carry the span.
-      if (lastMedia >= 0 && mediaTime + 1e-3 < lastMedia) base += lastMedia - start
-      lastMedia = mediaTime
-      const eff = base + (mediaTime - start)
-
+      // Linear playback time across loops (deterministic, from the loop counter).
+      const eff = loopCount * clipLen + (mediaTime - start)
+      composite(start + eff) // linear time keeps the lyric advancing across loops
       emitUpTo(eff)
 
       const pct = Math.min(100, Math.round((outIdx / totalFrames) * 100))
@@ -702,13 +719,6 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
       if (encoderError || outIdx >= totalFrames) {
         finish()
         return
-      }
-      // Loop the clip if it is shorter than the requested duration. Resume
-      // playback after seeking back — a clip that reached its end is paused,
-      // and a paused video never decodes new frames (freezing the output).
-      if (video.currentTime >= start + duration || video.ended) {
-        video.currentTime = start
-        if (video.paused) void video.play().catch(() => {})
       }
 
       // Backpressure: don't let VideoFrames pile up faster than the hardware
@@ -725,13 +735,9 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     schedule()
   })
 
-  // Playback may have ended a hair early — pad the tail so the output is exactly
-  // `duration` long.
-  if (!encoderError) emitUpTo(duration)
-
   video.pause()
   video.muted = true
-  audioStop = true
+  capturing = false
   try {
     await reader.cancel()
   } catch {
