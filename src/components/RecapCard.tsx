@@ -47,6 +47,13 @@ export const RecapCard = forwardRef<HTMLDivElement, Props>(
   // Spotify exposes no play counts; its top genres stand in for the number.
   const genres = recap.genres ?? []
   const hasGenres = !hasMinutes && genres.length > 0
+  const quoteLength = quote ? quote.trim().length : 0
+  let quoteSize = 'short'
+  if (quoteLength > 35 && quoteLength <= 65) {
+    quoteSize = 'medium'
+  } else if (quoteLength > 65) {
+    quoteSize = 'long'
+  }
 
   return (
     <div ref={ref} className={`card card--${variant} card--${recap.source} ${overlay ? 'card--overlay' : ''} ${videoUrl ? 'card--has-video' : ''}`}>
@@ -118,7 +125,7 @@ export const RecapCard = forwardRef<HTMLDivElement, Props>(
           {quote && (
             <blockquote className="card__quote-text">
               <span className="card__quote-mark">“</span>
-              <span className="card__quote-lines">
+              <span className="card__quote-lines" data-size={quoteSize}>
                 {quote.split('\n').map((line, idx) => (
                   <span key={idx} className="card__quote-line">
                     {line || '\u00A0'}

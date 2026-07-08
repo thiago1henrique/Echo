@@ -171,15 +171,15 @@ video.card__hero-img {
   flex: 1;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: 0;
 }
 .card__quote-text {
   margin: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
+  align-items: flex-start;
+  text-align: left;
 }
 .card__quote-mark {
   color: var(--c-accent);
@@ -190,7 +190,7 @@ video.card__hero-img {
 .card__quote-lines {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.75rem;
   font-style: italic;
   font-weight: 600;
   line-height: 1.35;
@@ -389,13 +389,14 @@ video.card__hero-img {
   height: calc(1920px - 1485px);
   padding: 60px;
 }
-/* Static image hero (no video): shrink the art box to a compact band and give
-   the body the reclaimed height. A loaded clip (.card--has-video) keeps the
-   full-bleed hero above. */
-.card--story:not(.card--has-video) .card__hero {
+/* Recap hero is a compact band so the top artists/tracks lists keep their room,
+   whether the hero shows the static art or an uploaded clip — the video fills the
+   same box as the image instead of taking over the card. (The lyric card keeps
+   its own full-bleed video hero via the .card--lyric rules below.) */
+.card--story:not(.card--lyric) .card__hero {
   height: 770px;
 }
-.card--story:not(.card--has-video) .card__body {
+.card--story:not(.card--lyric) .card__body {
   height: calc(1920px - 770px);
 }
 .card--story .card__list-title {
@@ -416,18 +417,26 @@ video.card__hero-img {
   font-size: 22px;
 }
 .card--story .card__quote {
-  padding: 30px 10px;
+  padding: 45px 10px;
 }
 .card--story .card__quote-text {
-  gap: 18px;
+  gap: 10px;
   max-width: 860px;
 }
 .card--story .card__quote-mark {
-  font-size: 120px;
-  height: 46px;
+  font-size: 96px;
+  height: 36px;
+  margin-top: 16px;
+  margin-bottom: -12px;
 }
 .card--story .card__quote-lines {
-  font-size: 3rem;
+  font-size: 2.85rem;
+}
+.card--story .card__quote-lines[data-size="medium"] {
+  font-size: 2.5rem;
+}
+.card--story .card__quote-lines[data-size="long"] {
+  font-size: 1.8rem;
 }
 .card--story .card__quote-cite {
   font-size: 26px;
@@ -506,19 +515,26 @@ video.card__hero-img {
   font-size: 19px;
 }
 .card--feed .card__quote {
-  padding: 20px 10px;
+  padding: 30px 10px;
 }
 .card--feed .card__quote-text {
-  gap: 12px;
+  gap: 8px;
   max-width: 100%;
 }
 .card--feed .card__quote-mark {
-  font-size: 84px;
-  height: 32px;
-  margin-top: 18px;
+  font-size: 68px;
+  height: 26px;
+  margin-top: 24px;
+  margin-bottom: -10px;
 }
 .card--feed .card__quote-lines {
-  font-size: 3rem;
+  font-size: 2.85rem;
+}
+.card--feed .card__quote-lines[data-size="medium"] {
+  font-size: 2.5rem;
+}
+.card--feed .card__quote-lines[data-size="long"] {
+  font-size: 1.8rem;
 }
 .card--feed .card__quote-cite {
   font-size: 22px;

@@ -48,11 +48,16 @@ function fetchFor(source: Source, user: string, period: Period): Promise<Recap> 
 const IS_FIREFOX =
   typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('firefox')
 
-// Hero rectangles per format (must match RecapCard.css hero sizes).
+// Hero rectangles per format (must match RecapCard.css hero sizes). The lyric
+// story card uses a full-bleed 1485px hero; the recap story card keeps a compact
+// 770px band so the lists stay visible, so its hero is overridden at the call
+// site below.
 const DIMS = {
   story: { canvasW: 1080, canvasH: 1920, hero: { x: 0, y: 0, w: 1080, h: 1485 } },
   feed: { canvasW: 1600, canvasH: 900, hero: { x: 0, y: 0, w: 620, h: 900 } },
 }
+// Recap story hero — the compact band matching .card--story:not(.card--lyric).
+const RECAP_STORY_HERO = { x: 0, y: 0, w: 1080, h: 770 }
 
 export default function App() {
   // Top-level experience: the recap (top artists/tracks) or the lyric card.
@@ -314,7 +319,14 @@ export default function App() {
     return null
   }
   function toggleLine(i: number) {
-    const next = selected.includes(i) ? selected.filter((x) => x !== i) : [...selected, i]
+    const next =
+      appMode === 'recap'
+        ? selected.includes(i)
+          ? []
+          : [i]
+        : selected.includes(i)
+        ? selected.filter((x) => x !== i)
+        : [...selected, i]
     setSelected(next)
     setQuote(
       [...next]
@@ -508,6 +520,8 @@ export default function App() {
         overlayNode,
         video,
         ...DIMS[kind],
+        // Recap story hero is a compact band, not the full-bleed lyric hero.
+        ...(kind === 'story' && appMode === 'recap' ? { hero: RECAP_STORY_HERO } : {}),
         start: startForExport,
         duration: duration,
         onStatus: setVstatus,
@@ -1125,10 +1139,26 @@ export default function App() {
               <span className="field__label">Seu verso</span>
               <textarea
                 className="input quote-editor__text"
-                rows={3}
-                placeholder="Toque nas linhas acima ou escreva o verso aqui…"
+                rows={appMode === 'recap' ? 1 : 3}
+                placeholder={
+                  appMode === 'recap'
+                    ? "Toque na linha acima ou escreva o verso aqui…"
+                    : "Toque nas linhas acima ou escreva o verso aqui…"
+                }
                 value={quote}
-                onChange={(e) => setQuote(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setQuote(appMode === 'recap' ? val.replace(/[\r\n]+/g, ' ') : val)
+                }}
+                onKeyDown={
+                  appMode === 'recap'
+                    ? (e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                        }
+                      }
+                    : undefined
+                }
               />
             </label>
             {quote && (
