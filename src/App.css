@@ -151,6 +151,7 @@
   background: var(--surface);
   color: var(--text-h);
   transition: border-color 0.15s, background 0.15s, transform 0.05s;
+  max-width: 9.75rem;
 }
 .btn:hover:not(:disabled) {
   border-color: var(--accent);
@@ -178,6 +179,11 @@
 .btn--primary:hover:not(:disabled) {
   color: #fff;
   filter: brightness(1.08);
+}
+/* "Gerar recap" fills the form width instead of the default capped btn size. */
+.controls > .btn--primary {
+  width: 100%;
+  max-width: none;
 }
 /* Spotify sign-in: their brand green, full-width call to action. */
 .btn--spotify {
@@ -270,6 +276,62 @@
   max-width: 360px;
   margin: 32px auto 16px;
 }
+/* ---- swipe-cue: mobile stand-in for the format toggle ----
+   Portrait/landscape phone icons shown under the (now swipeable) preview
+   card on narrow viewports — a tap fallback for the drag gesture. */
+.swipe-cue {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin: 6px auto 8px;
+}
+.swipe-cue__phones {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.swipe-cue__phone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--border);
+  cursor: pointer;
+  transition: color 0.2s, transform 0.2s;
+}
+.swipe-cue__phone.is-active {
+  color: var(--accent);
+  transform: scale(1.15);
+}
+/* Hint line: gently pulses to invite the gesture. Only rendered until the user
+   has swiped once (state persisted in localStorage) — see App.tsx. */
+.swipe-cue__hint {
+  display: block;
+  margin: 18px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  text-align: center;
+  opacity: 0.6;
+  animation: swipe-hint-pulse 1.8s ease-in-out infinite;
+}
+@keyframes swipe-hint-pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .swipe-cue__hint {
+    animation: none;
+  }
+}
 .segmented {
   position: relative;
   display: flex;
@@ -320,24 +382,165 @@
   font-size: 15px;
 }
 
-/* ---- export ---- */
+/* ---- editor tabs: Capa / Lado B / Verso ----
+   Desktop-only segmented control — mobile swaps it for a dragged panel (see
+   .swipe-cue--editor and .editor-panel--swipeable below), same split as the
+   Story↔Feed toggle. Swaps between the three editor panels below the export
+   bar instead of stacking all three in a giant scroll. A dot on a tab marks
+   that panel already has custom content (a cover, a video, a verse) even
+   while it's hidden behind another tab. */
+.segmented--editor {
+  max-width: 420px;
+  margin: 28px auto 0;
+}
+.segmented__opt.has-content::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 6px;
+  margin-bottom: 1px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
+  vertical-align: middle;
+}
+
+/* Mobile stand-in for .segmented--editor: same strip shape as .swipe-cue
+   (Story⇄Feed), labelled instead of iconed since there are three panels
+   instead of two. Tapping a label jumps straight there; dragging the panel
+   below (.editor-panel--swipeable) steps to the next/previous one. */
+.swipe-cue--editor {
+  margin: 28px auto 8px;
+}
+.swipe-cue__dots {
+  display: flex;
+  gap: 8px;
+}
+.swipe-cue__dot {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.swipe-cue__dot.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.swipe-cue__dot.has-content::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 6px;
+  margin-bottom: 1px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
+  vertical-align: middle;
+}
+
+/* The active editor panel, dragged 1:1 with the finger (Tinder-style) — same
+   mechanics as .preview__anim--swipeable: no transition while dragging, then
+   eases back to center or flies off past the edge before the tab switches. */
+.editor-panel--swipeable {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  touch-action: pan-y;
+  cursor: grab;
+  user-select: none;
+}
+.editor-panel--swipeable.is-dragging {
+  transition: none;
+  cursor: grabbing;
+}
+@media (prefers-reduced-motion: reduce) {
+  .editor-panel--swipeable {
+    transition: none;
+  }
+}
+
+/* ---- export ----
+   Story and Feed each get their platform's own identity — Instagram's
+   gradient, X's black — stacked full-width so the pair reads as two distinct
+   destinations rather than a generic format choice. */
 .export-bar {
   display: flex;
+  flex-direction: column;
   gap: 10px;
-  justify-content: center;
-  flex-wrap: wrap;
   margin: 20px 0 24px;
 }
-/* Equal-width export buttons: flex:1 with a shared basis makes them the same
-   size whether side by side or wrapped onto their own rows. */
 .export-bar .btn {
-  flex: 1 1 220px;
+  width: 100%;
+  max-width: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.btn__brand-mark {
+  width: 19px;
+  height: 19px;
+  flex-shrink: 0;
+}
+/* Instagram's gradient is also the exporting-state base layer (see below), so
+   it's named as a variable instead of repeated in the plain and is-exporting
+   rules. */
+.btn--instagram {
+  --brand-bg: linear-gradient(
+    45deg,
+    #405de6 0%,
+    #5b51d9 20%,
+    #833ab4 45%,
+    #c13584 65%,
+    #e1306c 80%,
+    #fd1d1d 100%
+  );
+  border: none;
+  color: #fff;
+  background-image: var(--brand-bg);
+}
+.btn--instagram:hover:not(:disabled) {
+  color: #fff;
+  filter: brightness(1.08);
+}
+.btn--x {
+  border: 1px solid #000;
+  color: #fff;
+  background-color: #000;
+}
+.btn--x:hover:not(:disabled) {
+  color: #fff;
+  filter: brightness(1.35);
+}
+/* Plain utility action, deliberately unbranded so it doesn't compete with the
+   two platform buttons above it — an outline, not a fill. */
+.btn--download {
+  background: transparent;
 }
 
 /* While exporting, the clicked button shows its progress inline: a brighter
-   fill grows left→right to --progress, over the accent background. Text stays
-   legible on top (it's just a background layer). */
-.btn--primary.is-exporting {
+   fill grows left→right to --progress, over the brand background. Text stays
+   legible on top (it's just a background layer). Each brand keeps its own
+   rule (rather than sharing .btn--primary's) so the progress/shimmer overlay
+   layers on top of *its* background instead of replacing it. */
+.btn--instagram.is-exporting {
+  cursor: progress;
+  background-image: linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.3) var(--progress, 0%),
+      rgba(255, 255, 255, 0) var(--progress, 0%)
+    ),
+    var(--brand-bg);
+}
+.btn--x.is-exporting {
   cursor: progress;
   background-image: linear-gradient(
     to right,
@@ -347,16 +550,48 @@
 }
 /* Keep the exporting button fully opaque despite being disabled, so the
    progress reads clearly (the other buttons still dim via :disabled). */
-.btn--primary.is-exporting:disabled {
+.btn--instagram.is-exporting:disabled,
+.btn--x.is-exporting:disabled {
   opacity: 1;
 }
 /* Indeterminate (no percentage yet): a highlight sweeps across the button. */
-.btn--primary.is-exporting.is-indeterminate {
+.btn--instagram.is-exporting.is-indeterminate {
+  background-image: linear-gradient(
+      100deg,
+      rgba(255, 255, 255, 0) 20%,
+      rgba(255, 255, 255, 0.35) 50%,
+      rgba(255, 255, 255, 0) 80%
+    ),
+    var(--brand-bg);
+  background-size: 45% 100%, 100% 100%;
+  background-repeat: no-repeat, no-repeat;
+  animation: btn-shimmer 1.1s linear infinite;
+}
+.btn--x.is-exporting.is-indeterminate {
   background-image: linear-gradient(
     100deg,
     rgba(255, 255, 255, 0) 20%,
     rgba(255, 255, 255, 0.35) 50%,
     rgba(255, 255, 255, 0) 80%
+  );
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+  animation: btn-shimmer 1.1s linear infinite;
+}
+/* .btn--download has no fill to layer a white highlight over, so it shimmers
+   with the accent tint instead (same one .input:focus's ring uses). */
+.btn--download.is-exporting {
+  cursor: progress;
+}
+.btn--download.is-exporting:disabled {
+  opacity: 1;
+}
+.btn--download.is-exporting.is-indeterminate {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    var(--accent-bg) 50%,
+    transparent 80%
   );
   background-size: 45% 100%;
   background-repeat: no-repeat;
@@ -371,7 +606,10 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .btn--primary.is-exporting.is-indeterminate {
+  .btn--primary.is-exporting.is-indeterminate,
+  .btn--instagram.is-exporting.is-indeterminate,
+  .btn--x.is-exporting.is-indeterminate,
+  .btn--download.is-exporting.is-indeterminate {
     animation: none;
   }
 }
@@ -380,6 +618,7 @@
 .preview {
   display: flex;
   justify-content: center;
+  margin-top: 1rem;
   margin-bottom: 8px;
 }
 /* The frame's width is capped per format; the card inside is scaled (inline, in
@@ -400,6 +639,24 @@
 }
 .preview__anim {
   transform-origin: top left;
+}
+/* Mobile Tinder-style swipe: the card follows the finger 1:1 while dragging
+   (no transition), then eases — either snapping back to center or flying off
+   past the viewport edge before the format switches — once released. */
+.preview__anim--swipeable {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  touch-action: pan-y;
+  cursor: grab;
+  user-select: none;
+}
+.preview__anim--swipeable.is-dragging {
+  transition: none;
+  cursor: grabbing;
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview__anim--swipeable {
+    transition: none;
+  }
 }
 /* When the period changes, the keyed .preview__anim wrapper remounts, so the
    card's inner content (hero text + each list row) animates in — staggered —
@@ -568,6 +825,24 @@
   border-radius: 12px;
   background: var(--social-bg);
   text-align: left;
+  /* Each panel mounts fresh when its editor tab is selected (the other two
+     are unmounted, not just hidden), so this plays every time you switch. */
+  animation: panel-in 0.3s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+  }
 }
 .panel.is-disabled {
   opacity: 0.5;
@@ -610,9 +885,9 @@
 /* ---- custom file picker ---- */
 .filepicker {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 12px;
-  flex-wrap: wrap;
+  margin-bottom: 1rem;
 }
 .filepicker__input {
   position: absolute;
@@ -622,41 +897,27 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
-.filepicker__btn {
-  display: inline-flex;
-  align-items: center;
-  font-family: var(--mono);
-  font-size: 12.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  cursor: pointer;
-  padding: 10px 16px;
-  border-radius: 7px;
-  border: 1px solid var(--accent-border);
-  background: transparent;
-  color: var(--accent);
-  white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
-}
-.filepicker__btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-bg);
-}
-.filepicker__input:focus-visible + .filepicker__btn {
+.filepicker__input:focus-visible + .btn {
   box-shadow: 0 0 0 3px var(--accent-bg);
 }
-.filepicker__name {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.filepicker .btn {
+  width: 100%;
+  max-width: none;
+  display: flex;
+  justify-content: center;
 }
-
+.cover-editor__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+.cover-editor__actions .btn {
+  width: 100%;
+  max-width: none;
+  display: flex;
+  justify-content: center;
+}
 .video-editor__controls {
   margin-top: 22px;
   display: flex;
@@ -928,6 +1189,7 @@
 }
 .quote-editor__text {
   width: 100%;
+  min-height: 72px;
   resize: vertical;
   font-family: inherit;
 }

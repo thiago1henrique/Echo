@@ -4,9 +4,26 @@ import { useEffect, useRef, useState } from 'react'
  * <img> that fades (and, on the hero, gently zooms) in once the pixels are
  * decoded, so photos don't pop in abruptly. Cached images fire no onLoad, so we
  * also check `complete` via the ref. crossOrigin is kept for canvas export.
+ * Falls back to the same empty-state placeholder used for a missing `src` if
+ * the image fails to load (404, CORS, proxy down), instead of staying stuck
+ * at opacity 0 forever.
  */
 export function FadeImg({ className, src }: { className: string; src: string }) {
   const [loaded, setLoaded] = useState(false)
+  const [errored, setErrored] = useState(false)
+  // Reset the fade/error state when `src` changes, without an effect (this
+  // component is reused across different images, e.g. as the recap hero swaps).
+  const [prevSrc, setPrevSrc] = useState(src)
+  if (src !== prevSrc) {
+    setPrevSrc(src)
+    setLoaded(false)
+    setErrored(false)
+  }
+
+  if (errored) {
+    return <div className={`${className} ${className}--empty`} />
+  }
+
   return (
     <img
       className={`${className} fade-img${loaded ? ' is-loaded' : ''}`}
@@ -14,6 +31,7 @@ export function FadeImg({ className, src }: { className: string; src: string }) 
       crossOrigin="anonymous"
       alt=""
       onLoad={() => setLoaded(true)}
+      onError={() => setErrored(true)}
       ref={(el) => {
         if (el?.complete) setLoaded(true)
       }}

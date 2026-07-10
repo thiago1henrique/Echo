@@ -548,6 +548,7 @@ function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
 
 async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
   const { overlayNode, video, canvasW, canvasH, hero, start, duration, onStatus } = opts
+  const AUDIO_PLAYBACK_SPEED = 1.0
 
   onStatus?.('Preparando…')
   const overlayUrl = await toPng(overlayNode, { pixelRatio: 1, cacheBust: true })
@@ -601,7 +602,7 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
   let currentAudioTimestamp = 0
   const audioEncoder = new AudioEncoder({
     output: (chunk, meta) => {
-      const duration = chunk.duration ?? 0
+      const duration = (chunk.duration ?? 0) * AUDIO_PLAYBACK_SPEED
       const data = new ArrayBuffer(chunk.byteLength)
       chunk.copyTo(data)
       const newChunk = new EncodedAudioChunk({
@@ -638,7 +639,7 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
   // This ensures the CPU is completely free to capture the audio stream perfectly.
   onStatus?.('Gravando áudio… 0%')
   video.muted = false
-  video.playbackRate = 1
+  video.playbackRate = AUDIO_PLAYBACK_SPEED
   await video.play()
 
   function onLoopEnded() {
@@ -665,10 +666,11 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
       if (firstTs < 0) firstTs = value.timestamp
       
       const elapsed = (value.timestamp - firstTs) / 1_000_000
-      const pct = Math.min(100, Math.round((elapsed / duration) * 100))
+      const physicalDurationNeeded = duration / AUDIO_PLAYBACK_SPEED
+      const pct = Math.min(100, Math.round((elapsed / physicalDurationNeeded) * 100))
       onStatus?.(`Gravando áudio… ${pct}%`)
 
-      if (elapsed >= duration) {
+      if (elapsed >= physicalDurationNeeded) {
         value.close()
         break
       }
@@ -685,6 +687,7 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
   await audioPump
   video.pause()
   video.muted = true
+  video.playbackRate = 1.0
   video.removeEventListener('ended', onLoopEnded)
   capturing = false
   try {
@@ -976,13 +979,4 @@ export async function exportCardVideo(
     }
   }
   return exportViaMediaRecorder(opts)
-}
-
-export function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ChangeEvent, CSSProperties, FormEvent, Ref } from 'react'
+import type { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, Ref } from 'react'
 import type { Period, Recap, Source } from './types'
 import { periodLabel, SOURCE_PERIODS } from './types'
 import { fetchRecap } from './lib/lastfm'
 import * as spotify from './lib/spotify'
 import { fetchLyricLines, fetchSyncedLyrics } from './lib/lyrics'
 import type { SyncedLine } from './lib/lyrics'
-import { searchTracks, proxied } from './lib/images'
+import { searchTracks, proxied, toDataUrl } from './lib/images'
 import type { TrackHit } from './lib/images'
-import { downloadNodeAsPng } from './lib/exportPng'
-import { exportCardVideo, downloadBlob } from './lib/videoExport'
+import { nodeToPngBlob } from './lib/exportPng'
+import { exportCardVideo } from './lib/videoExport'
+import { downloadBlob } from './lib/download'
 import { RecapCard } from './components/RecapCard'
 import { LyricCard } from './components/LyricCard'
 import { TrackSelect } from './components/TrackSelect'
@@ -70,6 +71,11 @@ export default function App() {
   // Which format the preview shows (also what the toggle above it drives). Both
   // formats are always exportable regardless of what's previewed.
   const [previewFmt, setPreviewFmt] = useState<'story' | 'feed'>('story')
+  // Which editor panel is shown below the export bar — same swap idea as the
+  // Story↔Feed toggle above, applied to Capa / Lado B / Verso em destaque, so
+  // only one panel renders at a time instead of stacking all three in a row.
+  const [editorTab, setEditorTab] = useState<'cover' | 'video' | 'quote'>('cover')
+  const EDITOR_TABS = ['cover', 'video', 'quote'] as const
   // Spotify auth state.
   const [spClientId, setSpClientId] = useState(spotify.getClientId())
   const [spConnected, setSpConnected] = useState(spotify.isConnected())
@@ -97,6 +103,9 @@ export default function App() {
   const [lyricHits, setLyricHits] = useState<TrackHit[]>([])
   const [searching, setSearching] = useState(false)
   const [selectedHit, setSelectedHit] = useState<TrackHit | null>(null)
+  // Album cover baked into a data URL (see toDataUrl in images.ts for why) so PNG/MP4
+  // export doesn't depend on the CORS proxy being reachable at export time.
+  const [coverDataUrl, setCoverDataUrl] = useState<string | undefined>(undefined)
   const [syncedLines, setSyncedLines] = useState<SyncedLine[]>([])
   // Song time (s) that the clip's first frame maps to — the animation anchor.
   // Set from the line the user marks (its lrclib timestamp), so that line shows
@@ -105,6 +114,11 @@ export default function App() {
   // Small manual nudge (s) on top of the anchor, to fine-tune the animation
   // against the clip's audio. Added to lyricOffset when driving the lyrics.
   const [lyricNudge, setLyricNudge] = useState(0)
+
+  // Custom hero cover: lets the user replace the auto-fetched cover (album art /
+  // artist photo) with their own image. Independent of — and overridden by — the
+  // video hero below; persists across song/recap picks, same as the video does.
+  const [customCoverUrl, setCustomCoverUrl] = useState('')
 
   // Video-hero state
   const [videoUrl, setVideoUrl] = useState('')
@@ -142,6 +156,29 @@ export default function App() {
   const previewScale = previewW ? previewW / previewBase.w : 0
   const previewH = previewW * (previewBase.h / previewBase.w)
 
+  // Mobile swipe-to-switch: drag the preview card sideways (Tinder-style) to
+  // flip between Story and Feed instead of the desktop segmented toggle. Only
+  // armed when !isWide — see WIDE_MQ above for the same mobile/desktop split
+  // used by the video dock.
+  const [dragX, setDragX] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const dragStartRef = useRef<number | null>(null)
+  // Hides the "arraste" hint once the user has discovered the gesture once —
+  // persisted so it doesn't reappear on a later visit.
+  const [hasSwiped, setHasSwiped] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('echo_swiped') === '1',
+  )
+
+  // Mobile swipe-to-switch, same idea applied to the Capa / Lado B / Verso
+  // editor tabs: drag the panel sideways (Tinder-style) to step to the next/
+  // previous tab instead of tapping the desktop segmented toggle.
+  const [editorDragX, setEditorDragX] = useState(0)
+  const [editorDragging, setEditorDragging] = useState(false)
+  const editorDragStartRef = useRef<number | null>(null)
+  const [hasSwipedEditor, setHasSwipedEditor] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('echo_swiped_editor') === '1',
+  )
+
   const storyRef = useRef<HTMLDivElement>(null)
   const feedRef = useRef<HTMLDivElement>(null)
   const overlayStoryRef = useRef<HTMLDivElement>(null)
@@ -161,8 +198,6 @@ export default function App() {
   const maxStart = Math.max(0, videoDur - clipLen)
   const start = Math.min(clipStart, maxStart)
 
-  // Lyric mode: album cover routed through the CORS proxy so PNG export works.
-  const coverUrl = selectedHit?.cover ? proxied(selectedHit.cover) : undefined
   // Whether there's a card to preview/export (recap generated, or a song picked).
   const showCard = appMode === 'recap' ? !!recap : !!selectedHit
 
@@ -257,6 +292,24 @@ export default function App() {
     }
   }, [lyricQuery, appMode, selectedHit])
 
+  // Bake the picked song's cover into a data URL (mirrors the recap hero image
+  // pipeline). Without this, PNG/MP4 export depends on the wsrv.nl proxy being
+  // reachable at export time, which isn't always true (ad-blockers, private DNS).
+  useEffect(() => {
+    const cover = selectedHit?.cover
+    if (!cover) {
+      const handle = setTimeout(() => setCoverDataUrl(undefined), 0)
+      return () => clearTimeout(handle)
+    }
+    let active = true
+    toDataUrl(proxied(cover, 1000)).then((url) => {
+      if (active) setCoverDataUrl(url)
+    })
+    return () => {
+      active = false
+    }
+  }, [selectedHit?.cover])
+
   // Switching to a different period shows a different dataset — clear the
   // lyric-quote selection so it isn't carried over.
   useEffect(() => {
@@ -289,6 +342,9 @@ export default function App() {
       }
       setRecaps(next)
       setGenerated(true)
+      // Re-arm the "arraste para o lado" hint on every fresh generation, even if
+      // the user already discovered the swipe gesture in a past visit.
+      setHasSwiped(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao buscar dados.')
     } finally {
@@ -381,6 +437,7 @@ export default function App() {
     if (next === appMode) return
     setAppMode(next)
     setError(null)
+    setEditorTab('cover')
     // Reset per-experience derived state so nothing carries over.
     setQuote('')
     setSelected([])
@@ -393,6 +450,7 @@ export default function App() {
     setSelectedHit(null)
     setLyricQuery('')
     removeVideo()
+    removeCustomCover()
   }
 
   /** Renders the right card for the current mode with the given role/format. */
@@ -408,7 +466,7 @@ export default function App() {
           title={selectedHit?.title ?? ''}
           artist={selectedHit?.artist ?? ''}
           album={selectedHit?.album ?? ''}
-          cover={coverUrl}
+          cover={customCoverUrl || coverDataUrl}
           syncedLines={syncedLines}
           lyricOffset={lyricOffset + lyricNudge}
           quote={quote}
@@ -424,7 +482,7 @@ export default function App() {
     return (
       <RecapCard
         ref={o.ref}
-        recap={recap!}
+        recap={customCoverUrl ? { ...recap!, heroImage: customCoverUrl } : recap!}
         variant={variant}
         quote={quote}
         quoteSong={quoteSong}
@@ -433,6 +491,75 @@ export default function App() {
         {...(o.mode === 'overlay' ? { videoUrl } : videoProps)}
       />
     )
+  }
+
+  // ---- Swipe helpers (mobile Story ⇄ Feed) ----
+  const SWIPE_THRESHOLD = 60
+  const SWIPE_FLY_DISTANCE = 500
+  function handleSwipeStart(e: ReactPointerEvent<HTMLDivElement>) {
+    if (isWide) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragStartRef.current = e.clientX
+    setDragging(true)
+  }
+  function handleSwipeMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (dragStartRef.current == null) return
+    setDragX(e.clientX - dragStartRef.current)
+  }
+  function handleSwipeEnd() {
+    if (dragStartRef.current == null) return
+    dragStartRef.current = null
+    setDragging(false)
+    if (Math.abs(dragX) > SWIPE_THRESHOLD) {
+      const dir = dragX > 0 ? 1 : -1
+      setDragX(dir * SWIPE_FLY_DISTANCE)
+      if (!hasSwiped) {
+        setHasSwiped(true)
+        localStorage.setItem('echo_swiped', '1')
+      }
+      window.setTimeout(() => {
+        setPreviewFmt((f) => (f === 'story' ? 'feed' : 'story'))
+        setDragX(0)
+      }, 220)
+    } else {
+      setDragX(0)
+    }
+  }
+
+  // ---- Swipe helpers (mobile Capa ⇄ Lado B ⇄ Verso) ----
+  // Same fly-off-then-swap gesture as the Story⇄Feed one above, generalized to
+  // step forward/backward through a 3-tab sequence (dragging right steps back,
+  // dragging left steps forward) instead of just flipping a binary format.
+  function handleEditorSwipeStart(e: ReactPointerEvent<HTMLDivElement>) {
+    if (isWide) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    editorDragStartRef.current = e.clientX
+    setEditorDragging(true)
+  }
+  function handleEditorSwipeMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (editorDragStartRef.current == null) return
+    setEditorDragX(e.clientX - editorDragStartRef.current)
+  }
+  function handleEditorSwipeEnd() {
+    if (editorDragStartRef.current == null) return
+    editorDragStartRef.current = null
+    setEditorDragging(false)
+    if (Math.abs(editorDragX) > SWIPE_THRESHOLD) {
+      const dir = editorDragX > 0 ? 1 : -1
+      const curIdx = EDITOR_TABS.indexOf(editorTab)
+      const nextIdx = (curIdx - dir + EDITOR_TABS.length) % EDITOR_TABS.length
+      setEditorDragX(dir * SWIPE_FLY_DISTANCE)
+      if (!hasSwipedEditor) {
+        setHasSwipedEditor(true)
+        localStorage.setItem('echo_swiped_editor', '1')
+      }
+      window.setTimeout(() => {
+        setEditorTab(EDITOR_TABS[nextIdx])
+        setEditorDragX(0)
+      }, 220)
+    } else {
+      setEditorDragX(0)
+    }
   }
 
   // ---- Video helpers ----
@@ -477,6 +604,18 @@ export default function App() {
     setClipLen(MAX_CLIP)
   }
 
+  // ---- Custom cover helpers ----
+  function onCoverFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (customCoverUrl) URL.revokeObjectURL(customCoverUrl)
+    setCustomCoverUrl(URL.createObjectURL(file))
+  }
+  function removeCustomCover() {
+    if (customCoverUrl) URL.revokeObjectURL(customCoverUrl)
+    setCustomCoverUrl('')
+  }
+
   // ---- Exports ----
   /** Slugified base filename for downloads, valid in both recap and lyric mode. */
   function exportName(kind: 'story' | 'feed') {
@@ -489,13 +628,64 @@ export default function App() {
     return `${base}-${kind}`
   }
 
-  async function handlePngExport(kind: 'story' | 'feed') {
+  /**
+   * Renders the export asset without downloading or sharing it — a video if a
+   * clip is loaded (and the browser can record one), a PNG otherwise. Shared by
+   * the plain-download handlers below and by the share-to-platform flow, so
+   * there's exactly one place that knows how to produce each format.
+   */
+  async function renderExportAsset(kind: 'story' | 'feed', customDuration?: number) {
+    if (videoUrl && !IS_FIREFOX) {
+      const overlayNode = kind === 'story' ? overlayStoryRef.current : overlayFeedRef.current
+      const video = exportVideoRef.current
+      if (!overlayNode || !video) return null
+      const duration = customDuration ?? clipLen
+      const maxStartForDur = Math.max(0, videoDur - duration)
+      const startForExport = Math.min(clipStart, maxStartForDur)
+      setVstatus('Preparando…')
+      const { blob, ext } = await exportCardVideo({
+        overlayNode,
+        video,
+        ...DIMS[kind],
+        // Recap story hero is a compact band, not the full-bleed lyric hero.
+        ...(kind === 'story' && appMode === 'recap' ? { hero: RECAP_STORY_HERO } : {}),
+        start: startForExport,
+        duration,
+        onStatus: setVstatus,
+        lyric:
+          appMode === 'lyric' && syncedLines.length > 0
+            ? { lines: syncedLines, variant: kind, offset: lyricOffset + lyricNudge }
+            : undefined,
+      })
+      return {
+        blob,
+        filename: `${exportName(kind)}.${ext}`,
+        mime: ext === 'mp4' ? 'video/mp4' : 'video/webm',
+        isFallbackWebm: ext === 'webm',
+      }
+    }
+    const node = kind === 'story' ? storyRef.current : feedRef.current
+    if (!node) return null
+    setVstatus('Gerando imagem…')
+    const blob = await nodeToPngBlob(node)
+    return { blob, filename: `${exportName(kind)}.png`, mime: 'image/png', isFallbackWebm: false }
+  }
+
+  /**
+   * Always downloads the still image, regardless of a loaded video clip. Used
+   * both as the share-flow's fallback (keyed by `kind`, so it lines up with
+   * whichever brand button triggered it) and by the plain "baixar foto" button
+   * (keyed by its own 'photo' id, so it doesn't light up a brand button that
+   * the user never clicked).
+   */
+  async function handlePngExport(kind: 'story' | 'feed', exportingKey: string = kind) {
     const node = kind === 'story' ? storyRef.current : feedRef.current
     if (!node || !showCard) return
-    setExporting(kind)
+    setExporting(exportingKey)
     setVstatus('Gerando imagem…')
     try {
-      await downloadNodeAsPng(node, `${exportName(kind)}.png`)
+      const blob = await nodeToPngBlob(node)
+      downloadBlob(blob, `${exportName(kind)}.png`)
     } catch {
       setError('Falha ao gerar o PNG. Tente gerar o recap novamente.')
     } finally {
@@ -505,33 +695,13 @@ export default function App() {
   }
 
   async function handleVideoExport(kind: 'story' | 'feed', customDuration?: number) {
-    const overlayNode = kind === 'story' ? overlayStoryRef.current : overlayFeedRef.current
-    const video = exportVideoRef.current
-    if (!overlayNode || !video || !showCard) return
-
-    const duration = customDuration ?? clipLen
-    const maxStartForDur = Math.max(0, videoDur - duration)
-    const startForExport = Math.min(clipStart, maxStartForDur)
-
+    if (!showCard) return
     setExporting(kind)
-    setVstatus('Preparando…')
     try {
-      const { blob, ext } = await exportCardVideo({
-        overlayNode,
-        video,
-        ...DIMS[kind],
-        // Recap story hero is a compact band, not the full-bleed lyric hero.
-        ...(kind === 'story' && appMode === 'recap' ? { hero: RECAP_STORY_HERO } : {}),
-        start: startForExport,
-        duration: duration,
-        onStatus: setVstatus,
-        lyric:
-          appMode === 'lyric' && syncedLines.length > 0
-            ? { lines: syncedLines, variant: kind, offset: lyricOffset + lyricNudge }
-            : undefined,
-      })
-      downloadBlob(blob, `${exportName(kind)}.${ext}`)
-      if (ext === 'webm') {
+      const asset = await renderExportAsset(kind, customDuration)
+      if (!asset) return
+      downloadBlob(asset.blob, asset.filename)
+      if (asset.isFallbackWebm) {
         setError(
           'Não consegui gerar MP4 neste navegador (o conversor falhou) — baixei em WebM. ' +
             'Tente no Chrome/Edge para MP4, ou veja o console para o erro do ffmpeg.',
@@ -542,6 +712,69 @@ export default function App() {
       const detail =
         err instanceof Error ? `${err.name}: ${err.message}` : String(err)
       setError(`Falha ao gerar o vídeo — ${detail}`)
+    } finally {
+      setExporting(null)
+      setVstatus(null)
+    }
+  }
+
+  /**
+   * Story/Feed buttons: try to hand the exported file straight to the OS share
+   * sheet (Web Share API), so the user can pick Instagram or X and post from
+   * there directly — no true web deep link into either app's composer exists
+   * without a registered native app, so the share sheet is the closest thing.
+   * Falls back to a plain download wherever Web Share (with files) isn't
+   * supported — desktop Firefox, older browsers — or if the user's browser
+   * rejects/cancels the share.
+   */
+  async function handleShareExport(kind: 'story' | 'feed') {
+    if (!showCard) return
+    const nav = navigator as Navigator & {
+      share?: (data: ShareData) => Promise<void>
+      canShare?: (data: ShareData) => boolean
+    }
+    if (!nav.share || !nav.canShare) {
+      return videoUrl && !IS_FIREFOX ? handleVideoExport(kind) : handlePngExport(kind)
+    }
+    setExporting(kind)
+    try {
+      const asset = await renderExportAsset(kind)
+      if (!asset) return
+      if (asset.isFallbackWebm) {
+        setError(
+          'Não consegui gerar MP4 neste navegador (o conversor falhou) — baixei em WebM. ' +
+            'Tente no Chrome/Edge para MP4, ou veja o console para o erro do ffmpeg.',
+        )
+      }
+      const file = new File([asset.blob], asset.filename, { type: asset.mime })
+      if (!nav.canShare({ files: [file] })) {
+        downloadBlob(asset.blob, asset.filename)
+        return
+      }
+      setVstatus('Abrindo…')
+      try {
+        await nav.share({
+          files: [file],
+          title: 'Echo',
+          text:
+            kind === 'story'
+              ? 'Meu recap do Echo — bora pro Story!'
+              : 'Meu recap do Echo',
+        })
+      } catch (shareErr) {
+        // The user closing the share sheet also lands here as an AbortError —
+        // that's a normal cancel, not a failure, so it gets no fallback download.
+        if (shareErr instanceof DOMException && shareErr.name === 'AbortError') return
+        downloadBlob(asset.blob, asset.filename)
+      }
+    } catch (err) {
+      console.error('Falha ao gerar o arquivo para compartilhar:', err)
+      const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      setError(
+        videoUrl && !IS_FIREFOX
+          ? `Falha ao gerar o vídeo — ${detail}`
+          : 'Falha ao gerar o PNG. Tente gerar o recap novamente.',
+      )
     } finally {
       setExporting(null)
       setVstatus(null)
@@ -593,7 +826,7 @@ export default function App() {
     const active = exporting === kind
     return {
       className:
-        'btn btn--primary' +
+        `btn btn--${kind === 'story' ? 'instagram' : 'x'}` +
         (active ? ' is-exporting' : '') +
         (active && !exportPct ? ' is-indeterminate' : ''),
       disabled: !!exporting,
@@ -602,6 +835,15 @@ export default function App() {
           ? ({ '--progress': `${exportPct}%` } as CSSProperties)
           : undefined,
     }
+  }
+  // The plain "baixar foto" button is keyed by its own id (not 'story'/'feed')
+  // so it never lights up a brand button the user didn't click.
+  const dlActive = exporting === 'photo'
+  const dlBtnProps = {
+    className:
+      'btn btn--download' + (dlActive ? ' is-exporting' : '') + (dlActive && !exportPct ? ' is-indeterminate' : ''),
+    disabled: !!exporting,
+    style: dlActive && exportPct ? ({ '--progress': `${exportPct}%` } as CSSProperties) : undefined,
   }
 
   return (
@@ -808,27 +1050,30 @@ export default function App() {
 
       {showCard && (
         <>
-          {/* Format toggle — drives which layout the preview below shows. */}
-          <div className="segmented segmented--format">
-            <span
-              className="segmented__slider"
-              style={{ width: '50%', transform: `translateX(${previewFmt === 'feed' ? 100 : 0}%)` }}
-            />
-            <button
-              type="button"
-              className={`segmented__opt ${previewFmt === 'story' ? 'is-active' : ''}`}
-              onClick={() => setPreviewFmt('story')}
-            >
-              Story · 9:16
-            </button>
-            <button
-              type="button"
-              className={`segmented__opt ${previewFmt === 'feed' ? 'is-active' : ''}`}
-              onClick={() => setPreviewFmt('feed')}
-            >
-              Feed · 16:9
-            </button>
-          </div>
+          {/* Format toggle — drives which layout the preview below shows. Desktop
+              only; on mobile the card itself is swiped (see .swipe-cue below). */}
+          {isWide && (
+            <div className="segmented segmented--format">
+              <span
+                className="segmented__slider"
+                style={{ width: '50%', transform: `translateX(${previewFmt === 'feed' ? 100 : 0}%)` }}
+              />
+              <button
+                type="button"
+                className={`segmented__opt ${previewFmt === 'story' ? 'is-active' : ''}`}
+                onClick={() => setPreviewFmt('story')}
+              >
+                Story · 9:16
+              </button>
+              <button
+                type="button"
+                className={`segmented__opt ${previewFmt === 'feed' ? 'is-active' : ''}`}
+                onClick={() => setPreviewFmt('feed')}
+              >
+                Feed · 16:9
+              </button>
+            </div>
+          )}
 
           <div className="preview">
             <div
@@ -837,14 +1082,64 @@ export default function App() {
               style={{ height: previewH || undefined }}
             >
               <div
-                className="preview__anim"
+                className={`preview__anim ${!isWide ? 'preview__anim--swipeable' : ''} ${dragging ? 'is-dragging' : ''}`}
                 key={`${appMode}-${selectedHit?.id ?? period}-${previewFmt}`}
-                style={{ transform: `scale(${previewScale})` }}
+                style={{
+                  transform: `translateX(${dragX}px) rotate(${dragX / 24}deg) scale(${previewScale})`,
+                }}
+                {...(!isWide
+                  ? {
+                      onPointerDown: handleSwipeStart,
+                      onPointerMove: handleSwipeMove,
+                      onPointerUp: handleSwipeEnd,
+                      onPointerCancel: handleSwipeEnd,
+                    }
+                  : {})}
               >
                 {renderCard(previewFmt, { live: appMode === 'lyric' && !!videoUrl })}
               </div>
             </div>
           </div>
+
+          {/* Mobile stand-in for the desktop segmented toggle: the card itself is
+              dragged sideways (Tinder-style) to flip Story ⇄ Feed. The phone
+              icons double as a tap fallback; the hint text fades out after the
+              first successful swipe (remembered in localStorage). */}
+          {!isWide && !hasSwiped && (
+            <span className="swipe-cue__hint">arraste para o lado para trocar</span>
+          )}
+          {!isWide && (
+            <div className="swipe-cue">
+              <div className="swipe-cue__phones" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={previewFmt === 'story'}
+                  aria-label="Story · 9:16"
+                  className={`swipe-cue__phone ${previewFmt === 'story' ? 'is-active' : ''}`}
+                  onClick={() => setPreviewFmt('story')}
+                >
+                  <svg viewBox="0 0 14 22" width="14" height="22" aria-hidden focusable="false">
+                    <rect x="1" y="1" width="12" height="20" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                    <circle cx="7" cy="18.1" r="0.9" fill="currentColor" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={previewFmt === 'feed'}
+                  aria-label="Feed · 16:9"
+                  className={`swipe-cue__phone ${previewFmt === 'feed' ? 'is-active' : ''}`}
+                  onClick={() => setPreviewFmt('feed')}
+                >
+                  <svg viewBox="0 0 22 14" width="22" height="14" aria-hidden focusable="false">
+                    <rect x="1" y="1" width="20" height="12" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                    <circle cx="18.1" cy="7" r="0.9" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Floating side-dock: a story-format phone mock that stays pinned in
               the desktop margin while a video is loaded, so the clip stays
@@ -868,44 +1163,38 @@ export default function App() {
           )}
 
           <div className="export-bar">
-            {videoUrl && !IS_FIREFOX ? (
-              <>
-                <button {...exportBtnProps('story')} onClick={() => handleVideoExport('story')}>
-                  {exporting === 'story' ? exportLabel : 'Instagram Story'}
-                </button>
-                <button {...exportBtnProps('feed')} onClick={() => handleVideoExport('feed')}>
-                  {exporting === 'feed' ? exportLabel : 'X - (Twitter)'}
-                </button>
-              </>
-            ) : (
-              <>
-                {videoUrl && IS_FIREFOX && (
-                  <>
-                    <button
-                      className="btn btn--primary"
-                      disabled
-                      title="Exportar vídeo não é suportado no Firefox. Use Chrome, Edge ou Safari."
-                    >
-                      Instagram Story · indisponível
-                    </button>
-                    <button
-                      className="btn btn--primary"
-                      disabled
-                      title="Exportar vídeo não é suportado no Firefox. Use Chrome, Edge ou Safari."
-                    >
-                      X - (Twitter) · indisponível
-                    </button>
-                  </>
-                )}
-                <button {...exportBtnProps('story')} onClick={() => handlePngExport('story')}>
-                  {exporting === 'story' ? exportLabel : 'PNG Story · 1080×1920'}
-                </button>
-                <button {...exportBtnProps('feed')} onClick={() => handlePngExport('feed')}>
-                  {exporting === 'feed' ? exportLabel : 'PNG Feed · 1600×900'}
-                </button>
-              </>
-            )}
+            <button {...exportBtnProps('story')} onClick={() => handleShareExport('story')}>
+              <svg className="btn__brand-mark" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="2" width="20" height="20" rx="5.5" />
+                <circle cx="12" cy="12" r="5" />
+                <circle cx="17.6" cy="6.4" r="1.15" fill="currentColor" stroke="none" />
+              </svg>
+              {exporting === 'story' ? exportLabel : 'Story'}
+            </button>
+            <button {...exportBtnProps('feed')} onClick={() => handleShareExport('feed')}>
+              <svg className="btn__brand-mark" viewBox="0 0 24 24" aria-hidden fill="currentColor">
+                <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
+              </svg>
+              {exporting === 'feed' ? exportLabel : 'Feed'}
+            </button>
+            <button
+              {...dlBtnProps}
+              onClick={() => handlePngExport(previewFmt, 'photo')}
+              title={`Baixar o recap em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), sem tentar compartilhar.`}
+            >
+              <svg className="btn__brand-mark" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v12m0 0-4-4m4 4 4-4" />
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+              </svg>
+              {dlActive ? exportLabel : `Baixar recap · ${previewFmt === 'story' ? 'Story' : 'Feed'}`}
+            </button>
           </div>
+          {videoUrl && !IS_FIREFOX && (
+            <p className="quote-editor__hint">
+              Story e Feed abrem o compartilhamento do seu aparelho — escolha o Instagram ou o
+              X pra postar. Sem suporte a isso, o arquivo é só baixado.
+            </p>
+          )}
           {videoUrl && IS_FIREFOX && (
             <p className="quote-editor__hint">
               ⚠ Exportar vídeo não é suportado no Firefox. O clipe aparece no preview, mas o
@@ -913,6 +1202,138 @@ export default function App() {
             </p>
           )}
 
+          {/* Editor tabs: Capa / Lado B / Verso — desktop keeps the segmented
+              toggle; mobile swaps it for a dragged (Tinder-style) panel, same
+              split as the Story↔Feed toggle above. Only one panel renders
+              below at a time instead of stacking all three in a long scroll. */}
+          {isWide && (
+            <div className="segmented segmented--editor">
+              <span
+                className="segmented__slider"
+                style={{
+                  width: `${100 / EDITOR_TABS.length}%`,
+                  transform: `translateX(${EDITOR_TABS.indexOf(editorTab) * 100}%)`,
+                }}
+              />
+              <button
+                type="button"
+                className={`segmented__opt ${editorTab === 'cover' ? 'is-active' : ''} ${
+                  customCoverUrl ? 'has-content' : ''
+                }`}
+                onClick={() => setEditorTab('cover')}
+              >
+                Capa
+              </button>
+              <button
+                type="button"
+                className={`segmented__opt ${editorTab === 'video' ? 'is-active' : ''} ${
+                  videoUrl ? 'has-content' : ''
+                }`}
+                onClick={() => setEditorTab('video')}
+              >
+                Lado B
+              </button>
+              <button
+                type="button"
+                className={`segmented__opt ${editorTab === 'quote' ? 'is-active' : ''} ${
+                  quote ? 'has-content' : ''
+                }`}
+                onClick={() => setEditorTab('quote')}
+              >
+                Verso
+              </button>
+            </div>
+          )}
+
+          {!isWide && !hasSwipedEditor && (
+            <span className="swipe-cue__hint">arraste o painel para o lado para trocar</span>
+          )}
+          {!isWide && (
+            <div className="swipe-cue swipe-cue--editor">
+              <div className="swipe-cue__dots" role="tablist">
+                {([
+                  ['cover', 'Capa', customCoverUrl],
+                  ['video', 'Lado B', videoUrl],
+                  ['quote', 'Verso', quote],
+                ] as const).map(([tab, label, hasContent]) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={editorTab === tab}
+                    aria-label={label}
+                    className={`swipe-cue__dot ${editorTab === tab ? 'is-active' : ''} ${
+                      hasContent ? 'has-content' : ''
+                    }`}
+                    onClick={() => setEditorTab(tab)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {editorTab === 'cover' && (
+          <div
+            className={`editor-panel ${!isWide ? 'editor-panel--swipeable' : ''} ${
+              editorDragging ? 'is-dragging' : ''
+            }`}
+            style={!isWide ? { transform: `translateX(${editorDragX}px) rotate(${editorDragX / 32}deg)` } : undefined}
+            {...(!isWide
+              ? {
+                  onPointerDown: handleEditorSwipeStart,
+                  onPointerMove: handleEditorSwipeMove,
+                  onPointerUp: handleEditorSwipeEnd,
+                  onPointerCancel: handleEditorSwipeEnd,
+                }
+              : {})}
+          >
+          <section className="panel cover-editor">
+            <div className="panel__head">
+              <span className="eyebrow">Capa · opcional</span>
+              <h2 className="panel__title">Imagem de capa</h2>
+            </div>
+            <p className="panel__hint">
+              Por padrão usamos a capa encontrada automaticamente. Se preferir, suba a sua
+              própria foto para o topo do card (ela é substituída pelo vídeo, se você subir um).
+            </p>
+            <div className="cover-editor__actions">
+              <input
+                id="cover-file"
+                className="filepicker__input"
+                type="file"
+                accept="image/*"
+                onChange={onCoverFile}
+              />
+              <label htmlFor="cover-file" className="btn btn--primary">
+                {customCoverUrl ? 'Trocar imagem' : 'Escolher imagem'}
+              </label>
+              {customCoverUrl && (
+                <button className="btn" onClick={removeCustomCover}>
+                  Usar capa padrão
+                </button>
+              )}
+            </div>
+          </section>
+          </div>
+          )}
+
+          {editorTab === 'video' && (
+          <div
+            className={`editor-panel ${!isWide ? 'editor-panel--swipeable' : ''} ${
+              editorDragging ? 'is-dragging' : ''
+            }`}
+            style={!isWide ? { transform: `translateX(${editorDragX}px) rotate(${editorDragX / 32}deg)` } : undefined}
+            {...(!isWide
+              ? {
+                  onPointerDown: handleEditorSwipeStart,
+                  onPointerMove: handleEditorSwipeMove,
+                  onPointerUp: handleEditorSwipeEnd,
+                  onPointerCancel: handleEditorSwipeEnd,
+                }
+              : {})}
+          >
           <section
             className={`panel video-editor ${IS_FIREFOX ? 'is-disabled' : ''}`}
             aria-disabled={IS_FIREFOX}
@@ -942,12 +1363,14 @@ export default function App() {
                 onChange={onVideoFile}
                 disabled={IS_FIREFOX}
               />
-              <label htmlFor="video-file" className="filepicker__btn">
+              <label htmlFor="video-file" className="btn btn--primary">
                 {videoUrl ? 'Trocar vídeo' : 'Escolher vídeo'}
               </label>
-              <span className="filepicker__name" title={videoName}>
-                {videoName || 'Nenhum arquivo escolhido'}
-              </span>
+              {videoUrl && (
+                <button className="btn" onClick={removeVideo}>
+                  Remover vídeo
+                </button>
+              )}
             </div>
             {videoUrl && !IS_FIREFOX && (
               <div className="video-editor__controls">
@@ -1035,10 +1458,14 @@ export default function App() {
               </div>
             )}
           </section>
+          </div>
+          )}
 
           {/* Mobile counterpart of the side-dock: on narrow viewports the fixed
-              dock is gone, so the live mock drops in here, between the video
-              panel and the encarte, expanding in when a clip is loaded. */}
+              dock is gone, so the live mock drops in here, expanding in when a
+              clip is loaded. Shown regardless of which editor tab is active —
+              same as the desktop dock — since it's a standing reminder of the
+              video hero, not part of any one panel. */}
           {videoUrl && !isWide && (
             <section
               className="video-mock"
@@ -1056,6 +1483,21 @@ export default function App() {
             </section>
           )}
 
+          {editorTab === 'quote' && (
+          <div
+            className={`editor-panel ${!isWide ? 'editor-panel--swipeable' : ''} ${
+              editorDragging ? 'is-dragging' : ''
+            }`}
+            style={!isWide ? { transform: `translateX(${editorDragX}px) rotate(${editorDragX / 32}deg)` } : undefined}
+            {...(!isWide
+              ? {
+                  onPointerDown: handleEditorSwipeStart,
+                  onPointerMove: handleEditorSwipeMove,
+                  onPointerUp: handleEditorSwipeEnd,
+                  onPointerCancel: handleEditorSwipeEnd,
+                }
+              : {})}
+          >
           <section className="panel encarte">
             <div className="panel__head">
               <span className="eyebrow">Encarte</span>
@@ -1167,6 +1609,8 @@ export default function App() {
               </button>
             )}
           </section>
+          </div>
+          )}
         </>
       )}
 

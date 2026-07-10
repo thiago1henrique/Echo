@@ -18,6 +18,20 @@ const PERIOD_MAP: Record<Period, { lfm: string; days: number }> = {
 
 const AVG_TRACK_SECONDS = 210 // fallback when Last.fm has no duration data
 
+/**
+ * Estimates minutes listened: exact scrobble count in the window × average
+ * track length (derived from durations reported by the user's top tracks,
+ * falling back to AVG_TRACK_SECONDS when none are available). Last.fm doesn't
+ * expose real listening time (msPlayed) per scrobble, so this is a proxy.
+ */
+export function estimateMinutes(scrobbles: number, trackDurations: number[]): number {
+  const durations = trackDurations.filter((d) => d > 0)
+  const avgSeconds = durations.length
+    ? durations.reduce((a, b) => a + b, 0) / durations.length
+    : AVG_TRACK_SECONDS
+  return Math.round((scrobbles * avgSeconds) / 60)
+}
+
 class LastfmError extends Error {}
 
 async function call<T>(params: Record<string, string>): Promise<T> {
@@ -169,12 +183,7 @@ export async function fetchRecap(userRaw: string, period: Period): Promise<Recap
     image: trackDataImages[i],
   }))
 
-  // Average duration from tracks that report one, else fallback.
-  const durations = rawTracks.map((t) => Number(t.duration)).filter((d) => d > 0)
-  const avgSeconds = durations.length
-    ? durations.reduce((a, b) => a + b, 0) / durations.length
-    : AVG_TRACK_SECONDS
-  const minutes = Math.round((scrobbles * avgSeconds) / 60)
+  const minutes = estimateMinutes(scrobbles, rawTracks.map((t) => Number(t.duration)))
 
   const artistsWithImages: ArtistStat[] = topArtists.map((a, i) => ({
     ...a,
