@@ -539,9 +539,17 @@ function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
     const onSeeked = () => {
       done()
     }
-    // High-performance backstop: resolve after 150ms if seeked event is delayed
+    // requestVideoFrameCallback fires as soon as the decoded frame is actually
+    // presented — a tighter, more direct signal than 'seeked' (which can lag
+    // behind the frame being ready), so it resolves each step sooner when
+    // available (Chromium, same tier required by the rest of this path).
+    const rvfc = (
+      video as unknown as { requestVideoFrameCallback?: (cb: () => void) => number }
+    ).requestVideoFrameCallback?.bind(video)
+    if (rvfc) rvfc(done)
+    else video.addEventListener('seeked', onSeeked)
+    // High-performance backstop: resolve after 150ms if the frame is delayed
     const timeout = setTimeout(done, 150)
-    video.addEventListener('seeked', onSeeked)
     video.currentTime = time
   })
 }
@@ -600,18 +608,26 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     avc: { format: 'avc' },
   })
   let currentAudioTimestamp = 0
+  // A clip shorter than the requested duration is looped (see `clipLen`
+  // below); while that first loop is captured in real time, its encoded
+  // chunks are also buffered here so the remaining loops can be synthesized
+  // from these bytes instead of re-playing (and re-capturing) identical audio
+  // — see the loop-replication step after Phase 1.
+  let captureLoopAudio = true
+  const loopAudioChunks: { type: EncodedAudioChunk['type']; duration: number; data: ArrayBuffer }[] = []
   const audioEncoder = new AudioEncoder({
     output: (chunk, meta) => {
-      const duration = (chunk.duration ?? 0) * AUDIO_PLAYBACK_SPEED
+      const chunkDuration = (chunk.duration ?? 0) * AUDIO_PLAYBACK_SPEED
       const data = new ArrayBuffer(chunk.byteLength)
       chunk.copyTo(data)
+      if (captureLoopAudio) loopAudioChunks.push({ type: chunk.type, duration: chunkDuration, data })
       const newChunk = new EncodedAudioChunk({
         type: chunk.type,
         timestamp: currentAudioTimestamp,
-        duration: duration,
+        duration: chunkDuration,
         data: data,
       })
-      currentAudioTimestamp += duration
+      currentAudioTimestamp += chunkDuration
       muxer.addAudioChunk(newChunk, meta)
     },
     error: onEncErr,
@@ -654,6 +670,9 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
 
   let capturing = true
   const reader = new MediaStreamTrackProcessor({ track: audioTrack }).readable.getReader()
+  // Capture only one loop's worth of real audio — the rest (if the clip is
+  // shorter than `duration`) is synthesized from it after Phase 1.
+  const audioCaptureLen = Math.min(duration, clipLen)
   const audioPump = (async () => {
     let firstTs = -1
     for (;;) {
@@ -664,9 +683,9 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
         break
       }
       if (firstTs < 0) firstTs = value.timestamp
-      
+
       const elapsed = (value.timestamp - firstTs) / 1_000_000
-      const physicalDurationNeeded = duration / AUDIO_PLAYBACK_SPEED
+      const physicalDurationNeeded = audioCaptureLen / AUDIO_PLAYBACK_SPEED
       const pct = Math.min(100, Math.round((elapsed / physicalDurationNeeded) * 100))
       onStatus?.(`Gravando áudio… ${pct}%`)
 
@@ -696,11 +715,36 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     /* already ended */
   }
   source.disconnect() // stop feeding the tap; keep ctx/source cached for reuse
+  captureLoopAudio = false
 
   if (encoderError) {
     videoEncoder.close()
     audioEncoder.close()
     throw encoderError
+  }
+
+  // A clip shorter than `duration` was captured once above, in real time;
+  // fill the remaining loops from the buffered bytes instead of re-playing
+  // (and re-capturing) identical audio — same result, far less wall-clock
+  // time for the short-clip-looped-to-a-longer-duration case.
+  if (clipLen < duration && loopAudioChunks.length) {
+    await audioEncoder.flush() // drain the first loop's chunks before reusing their bytes
+    const targetUs = duration * 1_000_000
+    while (currentAudioTimestamp < targetUs) {
+      for (const c of loopAudioChunks) {
+        if (currentAudioTimestamp >= targetUs) break
+        const chunkDuration = Math.min(c.duration, targetUs - currentAudioTimestamp)
+        muxer.addAudioChunk(
+          new EncodedAudioChunk({
+            type: c.type,
+            timestamp: currentAudioTimestamp,
+            duration: chunkDuration,
+            data: c.data,
+          }),
+        )
+        currentAudioTimestamp += chunkDuration
+      }
+    }
   }
 
   // ---- PHASE 2: VIDEO OFFLINE CAPTURE ----

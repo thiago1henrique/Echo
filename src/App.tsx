@@ -565,6 +565,11 @@ export default function App() {
   function onVideoFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    // The hero shows one or the other (see RecapCard/LyricCard), never both —
+    // so uploading a video clears any custom cover, otherwise it'd sit there
+    // hidden and reappear the moment the video is removed, confusing whoever
+    // uploaded the cover.
+    removeCustomCover()
     if (videoUrl) URL.revokeObjectURL(videoUrl)
     const url = URL.createObjectURL(file)
     setVideoUrl(url)
@@ -609,6 +614,9 @@ export default function App() {
   function onCoverFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    // Mirrors onVideoFile: the hero shows one or the other, so a fresh cover
+    // clears any uploaded video instead of sitting hidden behind it.
+    removeVideo()
     const reader = new FileReader()
     reader.onload = () => setCustomCoverUrl(reader.result as string)
     reader.readAsDataURL(file)
@@ -720,26 +728,28 @@ export default function App() {
   }
 
   /**
-   * Story/Feed buttons: try to hand the exported file straight to the OS share
-   * sheet (Web Share API), so the user can pick Instagram or X and post from
-   * there directly — no true web deep link into either app's composer exists
-   * without a registered native app, so the share sheet is the closest thing.
-   * Falls back to a plain download wherever Web Share (with files) isn't
-   * supported — desktop Firefox, older browsers — or if the user's browser
-   * rejects/cancels the share.
+   * Story/Feed buttons (and the video editor's quick-duration presets, which
+   * pass their own `customDuration` instead of the slider's `clipLen`): try to
+   * hand the exported file straight to the OS share sheet (Web Share API), so
+   * the user can pick Instagram or X and post from there directly — no true
+   * web deep link into either app's composer exists without a registered
+   * native app, so the share sheet is the closest thing. Falls back to a
+   * plain download wherever Web Share (with files) isn't supported — desktop
+   * Firefox, older browsers — or if the user's browser rejects/cancels the
+   * share.
    */
-  async function handleShareExport(kind: 'story' | 'feed') {
+  async function handleShareExport(kind: 'story' | 'feed', customDuration?: number) {
     if (!showCard) return
     const nav = navigator as Navigator & {
       share?: (data: ShareData) => Promise<void>
       canShare?: (data: ShareData) => boolean
     }
     if (!nav.share || !nav.canShare) {
-      return videoUrl && !IS_FIREFOX ? handleVideoExport(kind) : handlePngExport(kind)
+      return videoUrl && !IS_FIREFOX ? handleVideoExport(kind, customDuration) : handlePngExport(kind)
     }
     setExporting(kind)
     try {
-      const asset = await renderExportAsset(kind)
+      const asset = await renderExportAsset(kind, customDuration)
       if (!asset) return
       if (asset.isFallbackWebm) {
         setError(
@@ -1420,7 +1430,7 @@ export default function App() {
                         setClipLen(d)
                         const maxS = Math.max(0, videoDur - d)
                         setClipStart(prev => Math.min(prev, maxS))
-                        handleVideoExport(previewFmt, d)
+                        handleShareExport(previewFmt, d)
                       }}
                     >
                       15 segundos
@@ -1433,7 +1443,7 @@ export default function App() {
                         setClipLen(d)
                         const maxS = Math.max(0, videoDur - d)
                         setClipStart(prev => Math.min(prev, maxS))
-                        handleVideoExport(previewFmt, d)
+                        handleShareExport(previewFmt, d)
                       }}
                     >
                       30 segundos
@@ -1446,7 +1456,7 @@ export default function App() {
                         setClipLen(d)
                         const maxS = Math.max(0, videoDur - d)
                         setClipStart(prev => Math.min(prev, maxS))
-                        handleVideoExport(previewFmt, d)
+                        handleShareExport(previewFmt, d)
                       }}
                     >
                       1 minuto
