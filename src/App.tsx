@@ -122,6 +122,9 @@ export default function App() {
 
   // Video-hero state
   const [videoUrl, setVideoUrl] = useState('')
+  // The raw uploaded File is kept (not just its blob URL) so the deterministic
+  // export path can demux the encoded bytes directly.
+  const [videoFile, setVideoFile] = useState<File | null>(null)
   const [videoDur, setVideoDur] = useState(0)
   const [clipStart, setClipStart] = useState(0)
   const [clipLen, setClipLen] = useState(MAX_CLIP)
@@ -166,16 +169,6 @@ export default function App() {
   // persisted so it doesn't reappear on a later visit.
   const [hasSwiped, setHasSwiped] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('echo_swiped') === '1',
-  )
-
-  // Mobile swipe-to-switch, same idea applied to the Capa / Lado B / Verso
-  // editor tabs: drag the panel sideways (Tinder-style) to step to the next/
-  // previous tab instead of tapping the desktop segmented toggle.
-  const [editorDragX, setEditorDragX] = useState(0)
-  const [editorDragging, setEditorDragging] = useState(false)
-  const editorDragStartRef = useRef<number | null>(null)
-  const [hasSwipedEditor, setHasSwipedEditor] = useState(
-    () => typeof window !== 'undefined' && localStorage.getItem('echo_swiped_editor') === '1',
   )
 
   const storyRef = useRef<HTMLDivElement>(null)
@@ -525,42 +518,6 @@ export default function App() {
     }
   }
 
-  // ---- Swipe helpers (mobile Capa ⇄ Lado B ⇄ Verso) ----
-  // Same fly-off-then-swap gesture as the Story⇄Feed one above, generalized to
-  // step forward/backward through a 3-tab sequence (dragging right steps back,
-  // dragging left steps forward) instead of just flipping a binary format.
-  function handleEditorSwipeStart(e: ReactPointerEvent<HTMLDivElement>) {
-    if (isWide) return
-    e.currentTarget.setPointerCapture(e.pointerId)
-    editorDragStartRef.current = e.clientX
-    setEditorDragging(true)
-  }
-  function handleEditorSwipeMove(e: ReactPointerEvent<HTMLDivElement>) {
-    if (editorDragStartRef.current == null) return
-    setEditorDragX(e.clientX - editorDragStartRef.current)
-  }
-  function handleEditorSwipeEnd() {
-    if (editorDragStartRef.current == null) return
-    editorDragStartRef.current = null
-    setEditorDragging(false)
-    if (Math.abs(editorDragX) > SWIPE_THRESHOLD) {
-      const dir = editorDragX > 0 ? 1 : -1
-      const curIdx = EDITOR_TABS.indexOf(editorTab)
-      const nextIdx = (curIdx - dir + EDITOR_TABS.length) % EDITOR_TABS.length
-      setEditorDragX(dir * SWIPE_FLY_DISTANCE)
-      if (!hasSwipedEditor) {
-        setHasSwipedEditor(true)
-        localStorage.setItem('echo_swiped_editor', '1')
-      }
-      window.setTimeout(() => {
-        setEditorTab(EDITOR_TABS[nextIdx])
-        setEditorDragX(0)
-      }, 220)
-    } else {
-      setEditorDragX(0)
-    }
-  }
-
   // ---- Video helpers ----
   function onVideoFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -573,6 +530,7 @@ export default function App() {
     if (videoUrl) URL.revokeObjectURL(videoUrl)
     const url = URL.createObjectURL(file)
     setVideoUrl(url)
+    setVideoFile(file)
     setClipStart(0)
     const probe = document.createElement('video')
     probe.preload = 'metadata'
@@ -601,6 +559,7 @@ export default function App() {
   function removeVideo() {
     if (videoUrl) URL.revokeObjectURL(videoUrl)
     setVideoUrl('')
+    setVideoFile(null)
     setVideoDur(0)
     setClipStart(0)
     setClipLen(MAX_CLIP)
@@ -655,6 +614,7 @@ export default function App() {
       const { blob, ext } = await exportCardVideo({
         overlayNode,
         video,
+        file: videoFile ?? undefined,
         ...DIMS[kind],
         // Recap story hero is a compact band, not the full-bleed lyric hero.
         ...(kind === 'story' && appMode === 'recap' ? { hero: RECAP_STORY_HERO } : {}),
@@ -1213,12 +1173,11 @@ export default function App() {
             </p>
           )}
 
-          {/* Editor tabs: Capa / Lado B / Verso — desktop keeps the segmented
-              toggle; mobile swaps it for a dragged (Tinder-style) panel, same
-              split as the Story↔Feed toggle above. Only one panel renders
-              below at a time instead of stacking all three in a long scroll. */}
-          {isWide && (
-            <div className="segmented segmented--editor">
+          {/* Editor tabs: Capa / Lado B / Verso — a single segmented switch on
+              every viewport (same control as the Top álbuns/Letra mode switch).
+              Only one panel renders below at a time instead of stacking all
+              three in a long scroll. */}
+          <div className="segmented segmented--editor">
               <span
                 className="segmented__slider"
                 style={{
@@ -1253,53 +1212,10 @@ export default function App() {
               >
                 Verso
               </button>
-            </div>
-          )}
-
-          {!isWide && !hasSwipedEditor && (
-            <span className="swipe-cue__hint">arraste o painel para o lado para trocar</span>
-          )}
-          {!isWide && (
-            <div className="swipe-cue swipe-cue--editor">
-              <div className="swipe-cue__dots" role="tablist">
-                {([
-                  ['cover', 'Capa', customCoverUrl],
-                  ['video', 'Lado B', videoUrl],
-                  ['quote', 'Verso', quote],
-                ] as const).map(([tab, label, hasContent]) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    role="tab"
-                    aria-selected={editorTab === tab}
-                    aria-label={label}
-                    className={`swipe-cue__dot ${editorTab === tab ? 'is-active' : ''} ${
-                      hasContent ? 'has-content' : ''
-                    }`}
-                    onClick={() => setEditorTab(tab)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          </div>
 
           {editorTab === 'cover' && (
-          <div
-            className={`editor-panel ${!isWide ? 'editor-panel--swipeable' : ''} ${
-              editorDragging ? 'is-dragging' : ''
-            }`}
-            style={!isWide ? { transform: `translateX(${editorDragX}px) rotate(${editorDragX / 32}deg)` } : undefined}
-            {...(!isWide
-              ? {
-                  onPointerDown: handleEditorSwipeStart,
-                  onPointerMove: handleEditorSwipeMove,
-                  onPointerUp: handleEditorSwipeEnd,
-                  onPointerCancel: handleEditorSwipeEnd,
-                }
-              : {})}
-          >
+          <div className="editor-panel">
           <section className="panel cover-editor">
             <div className="panel__head">
               <span className="eyebrow">Capa · opcional</span>
@@ -1331,20 +1247,7 @@ export default function App() {
           )}
 
           {editorTab === 'video' && (
-          <div
-            className={`editor-panel ${!isWide ? 'editor-panel--swipeable' : ''} ${
-              editorDragging ? 'is-dragging' : ''
-            }`}
-            style={!isWide ? { transform: `translateX(${editorDragX}px) rotate(${editorDragX / 32}deg)` } : undefined}
-            {...(!isWide
-              ? {
-                  onPointerDown: handleEditorSwipeStart,
-                  onPointerMove: handleEditorSwipeMove,
-                  onPointerUp: handleEditorSwipeEnd,
-                  onPointerCancel: handleEditorSwipeEnd,
-                }
-              : {})}
-          >
+          <div className="editor-panel">
           <section
             className={`panel video-editor ${IS_FIREFOX ? 'is-disabled' : ''}`}
             aria-disabled={IS_FIREFOX}
@@ -1430,7 +1333,7 @@ export default function App() {
                         setClipLen(d)
                         const maxS = Math.max(0, videoDur - d)
                         setClipStart(prev => Math.min(prev, maxS))
-                        handleShareExport(previewFmt, d)
+                        handleVideoExport(previewFmt, d)
                       }}
                     >
                       15 segundos
@@ -1443,7 +1346,7 @@ export default function App() {
                         setClipLen(d)
                         const maxS = Math.max(0, videoDur - d)
                         setClipStart(prev => Math.min(prev, maxS))
-                        handleShareExport(previewFmt, d)
+                        handleVideoExport(previewFmt, d)
                       }}
                     >
                       30 segundos
@@ -1456,7 +1359,7 @@ export default function App() {
                         setClipLen(d)
                         const maxS = Math.max(0, videoDur - d)
                         setClipStart(prev => Math.min(prev, maxS))
-                        handleShareExport(previewFmt, d)
+                        handleVideoExport(previewFmt, d)
                       }}
                     >
                       1 minuto
@@ -1495,20 +1398,7 @@ export default function App() {
           )}
 
           {editorTab === 'quote' && (
-          <div
-            className={`editor-panel ${!isWide ? 'editor-panel--swipeable' : ''} ${
-              editorDragging ? 'is-dragging' : ''
-            }`}
-            style={!isWide ? { transform: `translateX(${editorDragX}px) rotate(${editorDragX / 32}deg)` } : undefined}
-            {...(!isWide
-              ? {
-                  onPointerDown: handleEditorSwipeStart,
-                  onPointerMove: handleEditorSwipeMove,
-                  onPointerUp: handleEditorSwipeEnd,
-                  onPointerCancel: handleEditorSwipeEnd,
-                }
-              : {})}
-          >
+          <div className="editor-panel">
           <section className="panel encarte">
             <div className="panel__head">
               <span className="eyebrow">Encarte</span>

@@ -384,12 +384,11 @@
 }
 
 /* ---- editor tabs: Capa / Lado B / Verso ----
-   Desktop-only segmented control — mobile swaps it for a dragged panel (see
-   .swipe-cue--editor and .editor-panel--swipeable below), same split as the
-   Story↔Feed toggle. Swaps between the three editor panels below the export
-   bar instead of stacking all three in a giant scroll. A dot on a tab marks
-   that panel already has custom content (a cover, a video, a verse) even
-   while it's hidden behind another tab. */
+   A single segmented control shown on every viewport (same control as the
+   Top álbuns/Letra mode switch). Swaps between the three editor panels below
+   the export bar instead of stacking all three in a giant scroll. A dot on a
+   tab marks that panel already has custom content (a cover, a video, a verse)
+   even while it's hidden behind another tab. */
 .segmented--editor {
   max-width: 420px;
   margin: 28px auto 0;
@@ -405,67 +404,6 @@
   background: currentColor;
   opacity: 0.75;
   vertical-align: middle;
-}
-
-/* Mobile stand-in for .segmented--editor: same strip shape as .swipe-cue
-   (Story⇄Feed), labelled instead of iconed since there are three panels
-   instead of two. Tapping a label jumps straight there; dragging the panel
-   below (.editor-panel--swipeable) steps to the next/previous one. */
-.swipe-cue--editor {
-  margin: 28px auto 8px;
-}
-.swipe-cue__dots {
-  display: flex;
-  gap: 8px;
-}
-.swipe-cue__dot {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  transition: color 0.2s, border-color 0.2s;
-}
-.swipe-cue__dot.is-active {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.swipe-cue__dot.has-content::after {
-  content: '';
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-left: 6px;
-  margin-bottom: 1px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.75;
-  vertical-align: middle;
-}
-
-/* The active editor panel, dragged 1:1 with the finger (Tinder-style) — same
-   mechanics as .preview__anim--swipeable: no transition while dragging, then
-   eases back to center or flies off past the edge before the tab switches. */
-.editor-panel--swipeable {
-  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
-  touch-action: pan-y;
-  cursor: grab;
-  user-select: none;
-}
-.editor-panel--swipeable.is-dragging {
-  transition: none;
-  cursor: grabbing;
-}
-@media (prefers-reduced-motion: reduce) {
-  .editor-panel--swipeable {
-    transition: none;
-  }
 }
 
 /* ---- export ----

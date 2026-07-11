@@ -8,15 +8,18 @@
 // card with a transparent hero — its gradient/text sit over the video, and its
 // body sits over the background.
 //
-// Two encoders:
-//   • WebCodecs (Chromium): the target path. Runs in two real-time passes to
-//     keep the CPU free during each. Pass 1 plays the clip and taps its audio
-//     through the WebAudio graph into an AAC AudioEncoder. Pass 2 replays the
-//     clip and composites each presented frame into a hardware H.264
-//     VideoEncoder. Both streams mux straight to MP4 with mp4-muxer — no ffmpeg
-//     transcode (that transcode, single-threaded WASM, was the slow
-//     "Convertendo…" step). Splitting audio from video means neither pass ever
-//     starves the other, so the video never drops/duplicates frames.
+// Three tiers (see exportCardVideo), best first:
+//   • WebCodecs OFFLINE (Chromium): the target path. Fully deterministic and
+//     faster than real time. Demuxes the uploaded file with mediabunny, decodes
+//     each source frame with a hardware VideoDecoder, samples it onto a fixed
+//     30fps CFR grid (previous-frame sampling), composites, and encodes H.264.
+//     Audio is decoded to PCM and re-encoded AAC at a length that exactly equals
+//     the video's — both tracks derive from the SAME timeline, so there is no
+//     drift, stutter, or lag. Muxes straight to MP4 (mediabunny). No <video>
+//     playback and no ffmpeg transcode.
+//   • WebCodecs real-time (Chromium): older two-pass real-time path, kept as a
+//     fallback for inputs the offline path can't demux/decode (e.g. no File, or
+//     an unsupported codec/GPU). Muxes with mp4-muxer.
 //   • Legacy fallback (Safari/older Firefox): MediaRecorder + ffmpeg.wasm.
 
 import { toPng } from 'html-to-image'
@@ -28,18 +31,22 @@ import { fetchFile } from '@ffmpeg/util'
 import coreURL from '@ffmpeg/core?url'
 import wasmURL from '@ffmpeg/core/wasm?url'
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer'
+import {
+  Input,
+  BlobSource,
+  ALL_FORMATS,
+  Output,
+  Mp4OutputFormat,
+  BufferTarget,
+  CanvasSink,
+  CanvasSource,
+  AudioBufferSink,
+  AudioBufferSource,
+  type InputAudioTrack,
+} from 'mediabunny'
 
-// MediaStreamTrackProcessor (Chromium) isn't in the TS DOM lib yet. Minimal
-// declaration for the audio-track reader we use in the WebCodecs path.
-declare global {
-  interface MediaStreamTrackProcessor<T = AudioData> {
-    readable: ReadableStream<T>
-  }
-  var MediaStreamTrackProcessor: {
-    prototype: MediaStreamTrackProcessor
-    new (init: { track: MediaStreamTrack; maxBufferSize?: number }): MediaStreamTrackProcessor<AudioData>
-  }
-}
+// MediaStreamTrackProcessor (Chromium) is typed by @types/dom-mediacapture-transform
+// (a transitive dependency of mediabunny), so no local declaration is needed.
 
 export interface Rect {
   x: number
@@ -61,6 +68,12 @@ export interface LyricLayerOpts {
 export interface VideoExportOpts {
   overlayNode: HTMLElement
   video: HTMLVideoElement
+  /**
+   * The raw uploaded video bytes. Required by the deterministic offline path
+   * (it demuxes/decodes the encoded file rather than playing the element). When
+   * absent, export falls back to the real-time paths that use `video`.
+   */
+  file?: Blob
   canvasW: number
   canvasH: number
   hero: Rect
@@ -244,9 +257,15 @@ async function prepareLyricFrames(
 // Shared compositor: builds the canvas + per-frame draw routine used by both
 // the WebCodecs and legacy paths.
 // ---------------------------------------------------------------------------
+// `sourceW`/`sourceH` are the dimensions of the frames that will be drawn each
+// frame (the video's display size). The frame itself is passed per `composite`
+// call as any `CanvasImageSource` (a live <video>, a decoded canvas, etc.), so
+// the compositor works for both the real-time paths (draw the <video>) and the
+// offline path (draw a decoded frame) without knowing where the pixels came from.
 function buildCompositor(
   overlay: HTMLImageElement,
-  video: HTMLVideoElement,
+  sourceW: number,
+  sourceH: number,
   canvasW: number,
   canvasH: number,
   hero: Rect,
@@ -286,7 +305,7 @@ function buildCompositor(
 
   // Source crop is constant for the whole recording (video dimensions and the
   // hero rect never change) — compute it once.
-  const { sx, sy, sw, sh } = coverCrop(video.videoWidth, video.videoHeight, hero.w, hero.h)
+  const { sx, sy, sw, sh } = coverCrop(sourceW, sourceH, hero.w, hero.h)
 
   // Find the minutes text bounding rect relative to the overlay container
   const minutesEl = overlayNode.querySelector('.card__minutes-value') as HTMLElement | null
@@ -316,16 +335,18 @@ function buildCompositor(
   let frameCount = 0
   let lastLyricIdx = -2
 
+  // `frame` is the source video frame to draw this call (or null to leave the
+  // hero showing only the background — e.g. before the first decoded frame).
   // `mediaTime` (video playback time, s) drives the lyric line; it's undefined
   // for the recap path, which animates purely off frameCount.
-  const composite = (mediaTime?: number) => {
+  const composite = (frame: CanvasImageSource | null, mediaTime?: number) => {
     ctx.fillStyle = bgGradient
     ctx.fillRect(0, 0, canvasW, canvasH)
     // Draw the video into the offscreen buffer, then erase its trailing edge
     // with the fade gradient so the background (already on ctx) shows through.
     hctx.globalCompositeOperation = 'source-over'
     hctx.clearRect(0, 0, hero.w, hero.h)
-    hctx.drawImage(video, sx, sy, sw, sh, 0, 0, hero.w, hero.h)
+    if (frame) hctx.drawImage(frame, sx, sy, sw, sh, 0, 0, hero.w, hero.h)
     hctx.globalCompositeOperation = 'destination-out'
     hctx.fillStyle = fadeMask
     hctx.fillRect(0, 0, hero.w, hero.h)
@@ -641,7 +662,7 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     bitrate: AUDIO_BITRATE,
   })
 
-  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero, overlayNode, preparedLyric, start)
+  const { canvas, composite } = buildCompositor(overlay, video.videoWidth, video.videoHeight, canvasW, canvasH, hero, overlayNode, preparedLyric, start)
 
   const totalFrames = Math.max(1, Math.round(duration * FPS))
   const frameDurUs = 1_000_000 / FPS
@@ -800,7 +821,7 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
 
     // Composite using linear, continuous song time (the lyric/animation layers
     // advance with the output timeline, independent of the video's own loop).
-    composite(start + outIdx / FPS)
+    composite(video, start + outIdx / FPS)
 
     const frame = new VideoFrame(canvas, {
       timestamp: Math.round(outIdx * frameDurUs),
@@ -838,6 +859,177 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
   onStatus?.('Finalizando…')
   muxer.finalize()
   const { buffer } = muxer.target as ArrayBufferTarget
+  onStatus?.('Pronto!')
+  return new Blob([buffer], { type: 'video/mp4' })
+}
+
+// ===========================================================================
+// WebCodecs OFFLINE path (deterministic) — primary path on Chromium.
+//
+// Everything derives from a single timeline: the video is sampled onto a clean
+// 30fps CFR grid and the audio is built to a length that exactly matches, so
+// there is no drift, stutter, or lag. Runs as fast as the CPU allows (no
+// real-time playback). Needs the encoded file bytes to demux (see `file`).
+// ===========================================================================
+
+/**
+ * Decodes the source audio to PCM, tiles it to exactly `targetSec` seconds
+ * (looping short clips, padding silence when needed), and feeds it to the AAC
+ * source as one buffer. Audio always spans [0, targetSec] — the same span as
+ * the video — so the two never drift. Synthesizes silence when the clip has no
+ * decodable audio (WhatsApp requires an audio track).
+ */
+async function encodeOfflineAudio(
+  audioSource: AudioBufferSource,
+  audioTrack: InputAudioTrack | null,
+  start: number,
+  clipLen: number,
+  targetSec: number,
+) {
+  // Keep the source's native rate to avoid a resample; AAC handles 44.1k/48k.
+  // Clamp to stereo (a 5.1 source keeps its front L/R — a rare input here).
+  const rate = audioTrack ? await audioTrack.getSampleRate() : 48000
+  const srcChannels = audioTrack ? await audioTrack.getNumberOfChannels() : 2
+  const channels = Math.min(2, Math.max(1, srcChannels))
+
+  const loopSamples = Math.max(1, Math.round(clipLen * rate))
+  const targetSamples = Math.max(1, Math.round(targetSec * rate))
+  const loopPcm = Array.from({ length: channels }, () => new Float32Array(loopSamples))
+
+  if (audioTrack) {
+    // Read exactly the clip window; align each decoded buffer to the segment
+    // start (a buffer straddling `start` has its pre-start head clipped).
+    const sink = new AudioBufferSink(audioTrack)
+    for await (const { buffer, timestamp } of sink.buffers(start, start + clipLen)) {
+      const offset = Math.round((timestamp - start) * rate)
+      const n = buffer.length
+      for (let ch = 0; ch < channels; ch++) {
+        const src = buffer.getChannelData(Math.min(ch, buffer.numberOfChannels - 1))
+        for (let i = 0; i < n; i++) {
+          const di = offset + i
+          if (di >= 0 && di < loopSamples) loopPcm[ch][di] = src[i]
+        }
+      }
+    }
+  }
+
+  // Tile the single loop to the exact target length (a no-op copy when the clip
+  // is at least as long as the requested duration).
+  const out = new AudioBuffer({ length: targetSamples, sampleRate: rate, numberOfChannels: channels })
+  for (let ch = 0; ch < channels; ch++) {
+    const dst = out.getChannelData(ch)
+    const loop = loopPcm[ch]
+    for (let i = 0; i < targetSamples; i++) dst[i] = loop[i % loopSamples]
+  }
+  await audioSource.add(out)
+  audioSource.close()
+}
+
+async function exportViaWebCodecsOffline(opts: VideoExportOpts, file: Blob): Promise<Blob> {
+  const { overlayNode, canvasW, canvasH, hero, start, duration, onStatus } = opts
+
+  onStatus?.('Preparando…')
+  const overlayUrl = await toPng(overlayNode, { pixelRatio: 1, cacheBust: true })
+  const overlay = await loadImage(overlayUrl)
+  const preparedLyric = opts.lyric
+    ? await prepareLyricFrames(overlayNode, opts.lyric, start, duration)
+    : null
+
+  // ---- Demux ----
+  const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) })
+  const videoTrack = await input.getPrimaryVideoTrack()
+  if (!videoTrack) throw new Error('Vídeo enviado não tem faixa de vídeo demuxável.')
+  // canDecode() gates codec/GPU support (e.g. HEVC decode is hardware-only on
+  // Chrome) — if it can't decode, throw so the caller falls back.
+  if (!(await videoTrack.canDecode())) throw new Error('Codec de vídeo não decodificável neste navegador.')
+
+  // Display dimensions are post-rotation — CanvasSink emits already-rotated,
+  // upright frames at this size, so the cover crop gets correct dimensions.
+  const displayW = await videoTrack.getDisplayWidth()
+  const displayH = await videoTrack.getDisplayHeight()
+  const trackDuration = await videoTrack.computeDuration()
+
+  // Audio is optional; only use it if present AND decodable, else synthesize
+  // silence in encodeOfflineAudio.
+  let audioTrack = await input.getPrimaryAudioTrack()
+  if (audioTrack && !(await audioTrack.canDecode())) audioTrack = null
+
+  // ---- Timeline (single source of truth for both tracks) ----
+  const totalFrames = Math.max(1, Math.round(duration * FPS))
+  const targetSec = totalFrames / FPS
+  const frameDur = 1 / FPS
+  // Length of the available segment; a shorter clip loops to fill `duration`.
+  const segMax = Number.isFinite(trackDuration) && trackDuration > 0 ? trackDuration - start : duration
+  const clipLen = Math.max(frameDur, Math.min(duration, segMax))
+
+  // ---- Output (mediabunny → MP4) ----
+  const output = new Output({
+    format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
+    target: new BufferTarget(),
+  })
+  const { canvas, composite } = buildCompositor(
+    overlay, displayW, displayH, canvasW, canvasH, hero, overlayNode, preparedLyric, start,
+  )
+  const videoSource = new CanvasSource(canvas, {
+    codec: 'avc',
+    bitrate: VIDEO_BITRATE,
+    // Force H.264 Main L4.0 for broad decoder compatibility (WhatsApp, older
+    // Android) — same profile/level as the real-time path's AVC_CODEC.
+    fullCodecString: AVC_CODEC,
+    // A key frame every 2s keeps the file scrubbable and broadly decodable.
+    keyFrameInterval: 2,
+  })
+  // rotation is baked into the decoded frames, so the output track is upright.
+  output.addVideoTrack(videoSource, { frameRate: FPS })
+
+  const audioSource = new AudioBufferSource({ codec: 'aac', bitrate: AUDIO_BITRATE })
+  output.addAudioTrack(audioSource)
+
+  await output.start()
+
+  try {
+    // ---- Audio ----
+    onStatus?.('Processando áudio…')
+    await encodeOfflineAudio(audioSource, audioTrack, start, clipLen, targetSec)
+
+    // ---- Video: fixed 30fps CFR, previous-frame sampling ----
+    onStatus?.('Gravando vídeo… 0%')
+    const sink = new CanvasSink(videoTrack)
+    let lastFrame: CanvasImageSource | null = null
+    let outIdx = 0
+    // Loop the segment deterministically: each iteration decodes the segment
+    // from `start` and feeds a strictly-monotonic timestamp list (which lets
+    // mediabunny decode each packet at most once). The output timeline
+    // (outIdx) is continuous across loops, so loop seams line up exactly.
+    while (outIdx < totalFrames) {
+      const framesThisLoop = Math.min(totalFrames - outIdx, Math.max(1, Math.round(clipLen * FPS)))
+      const timestamps = Array.from({ length: framesThisLoop }, (_, i) => start + i * frameDur)
+      for await (const wrapped of sink.canvasesAtTimestamps(timestamps)) {
+        // canvasesAtTimestamps already returns the last frame with PTS ≤ the
+        // requested time; null only before the first frame — hold the last.
+        if (wrapped?.canvas) lastFrame = wrapped.canvas
+        // Continuous, linear song time — identical to the real-time path, so
+        // the lyric/minutes animation is unchanged.
+        composite(lastFrame, start + outIdx * frameDur)
+        // The awaited add() respects encoder/writer backpressure.
+        await videoSource.add(outIdx * frameDur, frameDur)
+        outIdx++
+        if (outIdx % 5 === 0 || outIdx === totalFrames) {
+          onStatus?.(`Gravando vídeo… ${Math.min(100, Math.round((outIdx / totalFrames) * 100))}%`)
+        }
+      }
+    }
+    videoSource.close()
+
+    onStatus?.('Finalizando…')
+    await output.finalize()
+  } catch (err) {
+    await output.cancel().catch(() => {})
+    throw err
+  }
+
+  const { buffer } = output.target as BufferTarget
+  if (!buffer) throw new Error('Falha ao gerar o MP4 (buffer vazio).')
   onStatus?.('Pronto!')
   return new Blob([buffer], { type: 'video/mp4' })
 }
@@ -901,11 +1093,13 @@ async function exportViaMediaRecorder(
     ? await prepareLyricFrames(overlayNode, opts.lyric, start, duration)
     : null
 
-  const { canvas, composite } = buildCompositor(overlay, video, canvasW, canvasH, hero, overlayNode, preparedLyric, start)
+  const { canvas, composite } = buildCompositor(overlay, video.videoWidth, video.videoHeight, canvasW, canvasH, hero, overlayNode, preparedLyric, start)
 
   // Build the recording stream: canvas video + the clip's audio.
   const canvasStream = canvas.captureStream(FPS)
-  const tracks = [...canvasStream.getVideoTracks()]
+  // Mixed audio+video tracks — the DOM augmentation types the getters as
+  // narrow *VideoTrack/*AudioTrack arrays, so widen back to MediaStreamTrack.
+  const tracks: MediaStreamTrack[] = [...canvasStream.getVideoTracks()]
   const cv = video as CaptureVideo
   const grab = cv.captureStream?.bind(cv)
   let hasAudio = false
@@ -968,7 +1162,7 @@ async function exportViaMediaRecorder(
     }
     const frame = () => {
       if (done) return
-      composite(video.currentTime)
+      composite(video, video.currentTime)
       const elapsed = (performance.now() - startedAt) / 1000
       const pct = Math.min(100, Math.round((elapsed / duration) * 100))
       if (pct !== lastPct) {
@@ -1046,8 +1240,8 @@ async function exportViaMediaRecorder(
 }
 
 // ===========================================================================
-// Public entry point: pick the fast WebCodecs path when available, else the
-// MediaRecorder + ffmpeg fallback.
+// Public entry point: three tiers, best first — deterministic offline WebCodecs
+// → real-time WebCodecs → MediaRecorder + ffmpeg.
 // ===========================================================================
 
 /** Records the composited card and returns an MP4 blob (WebM if everything fails). */
@@ -1055,14 +1249,26 @@ export async function exportCardVideo(
   opts: VideoExportOpts,
 ): Promise<{ blob: Blob; ext: 'mp4' | 'webm' }> {
   if (hasWebCodecs() && (await videoConfigSupported(opts.canvasW, opts.canvasH))) {
+    // Tier 1: deterministic offline path. Needs the encoded file bytes to
+    // demux; degrades to the real-time path if the input can't be demuxed or
+    // its codec can't be decoded (e.g. HEVC on an unsupported GPU).
+    if (opts.file) {
+      try {
+        const blob = await exportViaWebCodecsOffline(opts, opts.file)
+        return { blob, ext: 'mp4' }
+      } catch (err) {
+        console.error('WebCodecs offline falhou, tentando tempo real:', err)
+      }
+    }
+    // Tier 2: real-time WebCodecs. Can also fail mid-encode on some drivers.
     try {
       const blob = await exportViaWebCodecs(opts)
       return { blob, ext: 'mp4' }
     } catch (err) {
-      // WebCodecs can fail mid-encode on some drivers — fall back to the
-      // battle-tested MediaRecorder path rather than failing the export.
+      // Fall back to the battle-tested MediaRecorder path rather than failing.
       console.error('WebCodecs falhou, usando MediaRecorder:', err)
     }
   }
+  // Tier 3: MediaRecorder + ffmpeg.wasm.
   return exportViaMediaRecorder(opts)
 }
