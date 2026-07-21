@@ -41,6 +41,10 @@
   --accent: var(--accent-lastfm);
   --accent-bg: var(--accent-lastfm-bg);
   --accent-border: var(--accent-lastfm-border);
+  /* Error/validation color — distinct from the (source-dependent) accent so it
+     reads as "wrong" under both the crimson Last.fm and green Spotify themes. */
+  --danger: #c0392b;
+  --danger-bg: rgba(192, 57, 43, 0.1);
   --social-bg: rgba(27, 22, 17, 0.03);
   --shadow:
     rgba(40, 28, 18, 0.12) 0 12px 24px -10px, rgba(40, 28, 18, 0.08) 0 4px 8px -4px;
@@ -79,6 +83,8 @@
     --accent-spotify: #1ed760;
     --accent-spotify-bg: rgba(30, 215, 96, 0.15);
     --accent-spotify-border: rgba(30, 215, 96, 0.42);
+    --danger: #ff6b5e;
+    --danger-bg: rgba(255, 107, 94, 0.14);
     --accent: var(--accent-lastfm);
     --accent-bg: var(--accent-lastfm-bg);
     --accent-border: var(--accent-lastfm-border);

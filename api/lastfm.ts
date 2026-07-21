@@ -34,6 +34,7 @@ const BASE = 'https://ws.audioscrobbler.com/2.0/'
 const ALLOWED_METHODS = new Set([
   'user.gettopartists',
   'user.gettoptracks',
+  'user.gettopalbums',
   'user.getrecenttracks',
 ])
 

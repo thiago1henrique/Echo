@@ -17,6 +17,15 @@ export interface TrackStat {
   image?: string
 }
 
+export interface AlbumStat {
+  name: string
+  artist: string
+  /** Undefined when the source doesn't expose play counts (Spotify). */
+  playcount?: number
+  /** Album cover art, baked into a data URL for reliable canvas export. */
+  image?: string
+}
+
 export interface Recap {
   source: Source
   /** Display handle: Last.fm username, or Spotify display name. */

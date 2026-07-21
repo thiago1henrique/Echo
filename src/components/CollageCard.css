@@ -1,0 +1,203 @@
+/* Album-cover collage. Rendered at exact pixel sizes for 1:1 PNG export.
+   Two formats: square (1080×1080, the bare grid) and story (1080×1920, the grid
+   framed with a header/footer for Instagram's 9:16). The caption style mirrors
+   tapmusic — small mono text top-left over each cover, legible via a shadow +
+   a faint top scrim. */
+
+.collage {
+  --col-bg: #131010;
+  --col-bg2: #1f1712;
+  --col-text: #f3ede2;
+  --col-muted: #a89f92;
+  --col-accent: #e0472d;
+  --col-mono: 'Space Mono', ui-monospace, monospace;
+  --col-display: 'Bricolage Grotesque Variable', system-ui, sans-serif;
+
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--col-text);
+  text-align: left;
+}
+.collage *,
+.collage *::before,
+.collage *::after {
+  box-sizing: border-box;
+}
+.app[data-source='spotify'] .collage {
+  --col-accent: #1ed760;
+}
+
+/* ── Square: the bare grid, edge to edge ─────────────────────────────────── */
+.collage--square {
+  width: 1080px;
+  height: 1080px;
+}
+
+/* ── Story: grid matted on a dark sleeve, header + footer to fill 9:16 ────── */
+.collage--story {
+  width: 1080px;
+  height: 1920px;
+  display: flex;
+  flex-direction: column;
+  gap: 44px;
+  padding: 72px 32px 60px;
+  background: linear-gradient(165deg, var(--col-bg2), var(--col-bg));
+}
+/* The grid stretches to fill everything between the header and footer, so the
+   collage fills the 9:16 frame instead of floating as a small square. Cells go
+   slightly portrait and the covers crop (object-fit: cover) to fill them. */
+.collage--story .collage__grid-wrap {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.75);
+}
+
+.collage__head {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.collage__eyebrow {
+  font-family: var(--col-mono);
+  font-size: 30px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--col-accent);
+}
+.collage__handle {
+  font-family: var(--col-display);
+  font-weight: 700;
+  font-size: 76px;
+  line-height: 0.95;
+  color: var(--col-text);
+}
+.collage__foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.collage__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  font-family: var(--col-display);
+  font-weight: 800;
+  font-size: 52px;
+  letter-spacing: -0.01em;
+  color: var(--col-text);
+}
+/* The Echo megaphone mark (same glyph as the favicon), sized to the wordmark. */
+.collage__mark {
+  height: 0.94em;
+  width: auto;
+  flex-shrink: 0;
+}
+.collage__foot-meta {
+  font-family: var(--col-mono);
+  font-size: 26px;
+  letter-spacing: 0.08em;
+  color: var(--col-muted);
+}
+
+/* ── The grid itself ─────────────────────────────────────────────────────── */
+.collage__grid {
+  display: grid;
+  width: 100%;
+  height: 100%;
+}
+.collage__cell {
+  position: relative;
+  overflow: hidden;
+  background: #0d0b0a;
+}
+/* Square format keeps true 1:1 cells; story lets the grid rows drive the height
+   so the collage fills the taller 9:16 canvas. */
+.collage--square .collage__cell {
+  aspect-ratio: 1 / 1;
+}
+.collage__cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* Covers appear solid — no fade-in. In a dense grid the staggered per-image
+   fade reads as unwanted motion, and a solid cover also guarantees the PNG
+   export never catches one mid-transition (opacity < 1). */
+.collage__cover.fade-img {
+  opacity: 1;
+  transition: none;
+}
+.collage__cover--empty {
+  background: repeating-linear-gradient(
+    -45deg,
+    #1a1512,
+    #1a1512 12px,
+    #221a15 12px,
+    #221a15 24px
+  );
+}
+
+/* Caption: top-left, mono, over a faint scrim so it stays legible on both dark
+   and light covers. Font scales down as the grid gets denser (per data-size). */
+.collage__caption {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  line-height: 1.18;
+  font-family: var(--col-mono);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+  pointer-events: none;
+}
+.collage__artist {
+  font-weight: 700;
+}
+.collage__album,
+.collage__plays {
+  font-weight: 400;
+}
+.collage__plays {
+  color: #e8e2d6;
+}
+
+/* Per-density typography + padding. Cells shrink with N, so the caption text and
+   scrim shrink with them; a 10×10 barely fits a line, so it drops the scrim. */
+.collage__grid[data-size='3'] .collage__caption {
+  font-size: 19px;
+  padding: 14px 16px;
+}
+.collage__grid[data-size='4'] .collage__caption {
+  font-size: 15px;
+  padding: 11px 13px;
+}
+.collage__grid[data-size='5'] .collage__caption {
+  font-size: 12px;
+  padding: 9px 10px;
+}
+.collage__grid[data-size='10'] .collage__caption {
+  font-size: 7px;
+  padding: 4px 5px;
+  line-height: 1.1;
+  background: none;
+}
+
+/* Truncate over-long titles so a caption never spills past its cover. */
+.collage__artist,
+.collage__album {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}

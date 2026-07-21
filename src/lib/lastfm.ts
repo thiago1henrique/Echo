@@ -1,5 +1,5 @@
-import type { ArtistStat, Period, Recap, TrackStat } from '../types'
-import { fetchArtistImage, fetchTrackCover, proxied, toDataUrl } from './images'
+import type { AlbumStat, ArtistStat, Period, Recap, TrackStat } from '../types'
+import { fetchArtistImage, fetchTrackCover, flattenImage, proxied, toDataUrl } from './images'
 
 // Calls go through our own serverless proxy (api/lastfm.ts) so the Last.fm API
 // key stays server-side and never enters the client bundle. Requires the site
@@ -61,6 +61,10 @@ async function call<T>(params: Record<string, string>): Promise<T> {
   return data as T
 }
 
+// The star placeholder Last.fm serves for imageless artists (same one
+// api/lastfm-image.ts filters out of its own scrape) — never a real photo.
+const LFM_STAR_PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f'
+
 // Last.fm image arrays: [{'#text': url, size: 'small'|...|'extralarge'}]
 type LfmImage = { '#text': string; size: string }
 function pickImage(images?: LfmImage[]): string | undefined {
@@ -93,6 +97,16 @@ interface TopTracksResp {
     }[]
   }
 }
+interface TopAlbumsResp {
+  topalbums: {
+    album: {
+      name: string
+      playcount: string
+      artist: { name: string }
+      image: LfmImage[]
+    }[]
+  }
+}
 interface RecentResp {
   recenttracks: { '@attr'?: { total?: string } }
 }
@@ -108,11 +122,17 @@ async function getTopArtists(
     period: PERIOD_MAP[period].lfm,
     limit: String(limit),
   })
-  return (data.topartists?.artist ?? []).map((a) => ({
-    name: a.name,
-    playcount: Number(a.playcount) || 0,
-    lfmImage: pickImage(a.image),
-  }))
+  return (data.topartists?.artist ?? []).map((a) => {
+    const img = pickImage(a.image)
+    return {
+      name: a.name,
+      playcount: Number(a.playcount) || 0,
+      // Last.fm's JSON API only returns the deprecated star for artist photos
+      // now — using it as a fallback would render a fake "photo" instead of
+      // gracefully falling through to the empty-thumb state.
+      lfmImage: img?.includes(LFM_STAR_PLACEHOLDER) ? undefined : img,
+    }
+  })
 }
 
 async function getTopTracks(user: string, period: Period, limit: number) {
@@ -203,4 +223,56 @@ export async function fetchRecap(userRaw: string, period: Period): Promise<Recap
     scrobbles,
     minutes,
   }
+}
+
+/**
+ * Fetches the user's top albums for the collage grid. Returns `count` albums
+ * (an N×N grid), each with its cover baked into a data URL so the PNG export
+ * doesn't depend on the image proxy being reachable at export time (same reason
+ * as the recap hero, see toDataUrl in images.ts).
+ *
+ * Covers come from Last.fm's own album art first — it's real album art, unlike
+ * the deprecated artist photos — falling back to a Deezer lookup when an album
+ * has no image. `coverSize` scales with the grid so a 10×10 doesn't bake a
+ * hundred full-size images.
+ */
+export async function fetchTopAlbums(
+  userRaw: string,
+  period: Period,
+  count: number,
+): Promise<AlbumStat[]> {
+  const user = userRaw.trim()
+  if (!user) throw new LastfmError('Informe seu usuário do Last.fm.')
+
+  const data = await call<TopAlbumsResp>({
+    method: 'user.gettopalbums',
+    user,
+    period: PERIOD_MAP[period].lfm,
+    limit: String(count),
+  })
+  const albums = (data.topalbums?.album ?? []).slice(0, count)
+
+  // Denser grids get smaller covers (cell ≈ 1080/√count, fetched at ~2× for
+  // crispness): a 3×3 pulls 500px art, a 10×10 only ~200px.
+  const cols = Math.round(Math.sqrt(count))
+  const coverSize = Math.max(200, Math.min(500, Math.ceil((1080 / cols) * 1.4)))
+
+  const covers = await Promise.all(
+    albums.map(async (a) => {
+      const lfm = pickImage(a.image)
+      if (lfm) return lfm
+      return fetchTrackCover(a.artist?.name ?? '', a.name)
+    }),
+  )
+  // flattenImage (not toDataUrl) so animated-GIF covers are frozen to their
+  // first frame — the collage is a still image, and GIFs would otherwise play
+  // in the preview and risk a mid-animation frame in the PNG export.
+  const dataUrls = await Promise.all(covers.map((u) => flattenImage(proxied(u, coverSize), coverSize)))
+
+  return albums.map((a, i) => ({
+    name: a.name,
+    artist: a.artist?.name ?? '',
+    playcount: Number(a.playcount) || 0,
+    image: dataUrls[i],
+  }))
 }

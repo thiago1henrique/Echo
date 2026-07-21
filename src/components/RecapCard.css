@@ -260,7 +260,7 @@ video.card__hero-img {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: 2px;
+  gap: 6px;
 }
 .card__item-name {
   font-weight: 700;

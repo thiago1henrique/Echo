@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, Ref } from 'react'
-import type { Period, Recap, Source } from './types'
+import type { AlbumStat, Period, Recap, Source } from './types'
 import { periodLabel, SOURCE_PERIODS } from './types'
-import { fetchRecap } from './lib/lastfm'
+import { fetchRecap, fetchTopAlbums } from './lib/lastfm'
 import * as spotify from './lib/spotify'
 import { fetchLyricLines, fetchSyncedLyrics } from './lib/lyrics'
 import type { SyncedLine } from './lib/lyrics'
@@ -13,11 +13,13 @@ import { exportCardVideo } from './lib/videoExport'
 import { downloadBlob } from './lib/download'
 import { RecapCard } from './components/RecapCard'
 import { LyricCard } from './components/LyricCard'
+import { CollageCard } from './components/CollageCard'
+import type { CollageFormat } from './components/CollageCard'
 import { TrackSelect } from './components/TrackSelect'
 import { InstallPrompt } from './components/InstallPrompt'
 import './App.css'
 
-type AppMode = 'recap' | 'lyric'
+type AppMode = 'recap' | 'lyric' | 'collage'
 
 const MAX_CLIP = 60
 
@@ -37,6 +39,31 @@ function clock(seconds: number): string {
   const total = Math.round(seconds)
   if (total < 60) return `${total}s`
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+/** Always "m:ss" — the editable timecode format for the start/end inputs. */
+function timecode(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds))
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+/**
+ * Parses what the user typed into the timecode fields. Accepts "m:ss" / "mm:ss"
+ * (e.g. "1:05"), bare seconds ("90", "90s"), and tolerates spaces. Returns the
+ * time in seconds, or null when the text can't be read as a time.
+ */
+function parseTimecode(text: string): number | null {
+  const t = text.trim().toLowerCase().replace(/s$/, '')
+  if (!t) return null
+  if (t.includes(':')) {
+    const [m, s] = t.split(':')
+    const mm = Number(m)
+    const ss = Number(s)
+    if (!Number.isFinite(mm) || !Number.isFinite(ss)) return null
+    return mm * 60 + ss
+  }
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
 }
 
 /** Dispatches the recap fetch to the selected source. */
@@ -90,6 +117,16 @@ export default function App() {
   const [vstatus, setVstatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Collage state (tapmusic-style album grid). The grid side (3/4/5/10), whether
+  // to overlay captions / play counts, and the export format (square vs story).
+  const [collageSize, setCollageSize] = useState(3)
+  const [collageCaptions, setCollageCaptions] = useState(true)
+  const [collagePlaycount, setCollagePlaycount] = useState(true)
+  const [collageFmt, setCollageFmt] = useState<CollageFormat>('story')
+  const [collageAlbums, setCollageAlbums] = useState<AlbumStat[]>([])
+  const [collageGenerated, setCollageGenerated] = useState(false)
+  const [collageLoading, setCollageLoading] = useState(false)
+
   // Lyric-quote state
   const [quote, setQuote] = useState('')
   const [quoteSongIdx, setQuoteSongIdx] = useState(0)
@@ -128,6 +165,14 @@ export default function App() {
   const [videoDur, setVideoDur] = useState(0)
   const [clipStart, setClipStart] = useState(0)
   const [clipLen, setClipLen] = useState(MAX_CLIP)
+  // Free-text drafts for the start/end timecode fields, so the user can type
+  // (including partial "1:" states) without the value being clamped mid-keystroke.
+  // Null = show the committed value; commit + clamp happen on blur / Enter.
+  const [startDraft, setStartDraft] = useState<string | null>(null)
+  const [endDraft, setEndDraft] = useState<string | null>(null)
+  // Shown under the timecode fields when the user asks for an end past the end
+  // of the video (or a start past its length). Cleared on the next valid commit.
+  const [timeError, setTimeError] = useState('')
   // Whether we're on a wide (desktop) viewport — decides if the video preview
   // mock renders in the side-margin or inline. Tracked in JS (not just CSS) so
   // only one of the two mocks mounts, i.e. we never decode the clip twice.
@@ -158,6 +203,22 @@ export default function App() {
   const previewScale = previewW ? previewW / previewBase.w : 0
   const previewH = previewW * (previewBase.h / previewBase.w)
 
+  // Collage preview scaling — same measure-and-scale trick as the recap preview,
+  // but its own frame since the collage has different export dimensions (square
+  // 1080×1080 or story 1080×1920, never the 16:9 feed).
+  const [collagePreviewW, setCollagePreviewW] = useState(0)
+  const collageRoRef = useRef<ResizeObserver | null>(null)
+  const collagePreviewRef = useCallback((node: HTMLDivElement | null) => {
+    collageRoRef.current?.disconnect()
+    if (!node) return
+    setCollagePreviewW(node.clientWidth)
+    collageRoRef.current = new ResizeObserver(([entry]) => setCollagePreviewW(entry.contentRect.width))
+    collageRoRef.current.observe(node)
+  }, [])
+  const collageBase = collageFmt === 'story' ? { w: 1080, h: 1920 } : { w: 1080, h: 1080 }
+  const collageScale = collagePreviewW ? collagePreviewW / collageBase.w : 0
+  const collageH = collagePreviewW * (collageBase.h / collageBase.w)
+
   // Mobile swipe-to-switch: drag the preview card sideways (Tinder-style) to
   // flip between Story and Feed instead of the desktop segmented toggle. Only
   // armed when !isWide — see WIDE_MQ above for the same mobile/desktop split
@@ -176,6 +237,7 @@ export default function App() {
   const overlayStoryRef = useRef<HTMLDivElement>(null)
   const overlayFeedRef = useRef<HTMLDivElement>(null)
   const exportVideoRef = useRef<HTMLVideoElement>(null)
+  const collageRef = useRef<HTMLDivElement>(null)
 
   const hasClientId = spClientId.trim().length > 0
   const periods = SOURCE_PERIODS[source]
@@ -189,6 +251,50 @@ export default function App() {
     : undefined
   const maxStart = Math.max(0, videoDur - clipLen)
   const start = Math.min(clipStart, maxStart)
+  const clipEnd = start + clipLen
+
+  /**
+   * Commits the "Início" field: the start timecode the user typed. Clamps to the
+   * clip, keeps the current duration when it still fits, and shrinks it otherwise
+   * so the window never runs past the end of the uploaded video.
+   */
+  function commitStart(text: string) {
+    setStartDraft(null)
+    const parsed = parseTimecode(text)
+    if (parsed == null) return
+    if (videoDur && parsed > videoDur) {
+      setTimeError(`O início (${timecode(parsed)}) passa da duração do vídeo (${timecode(videoDur)}).`)
+    } else {
+      setTimeError('')
+    }
+    const hi = videoDur ? Math.max(0, videoDur - 1) : parsed
+    const s = Math.max(0, Math.min(parsed, hi))
+    let len = clipLen
+    if (videoDur && s + len > videoDur) len = Math.max(1, videoDur - s)
+    setClipStart(s)
+    setClipLen(Math.min(len, MAX_CLIP))
+  }
+
+  /**
+   * Commits the "Fim" field: the end timecode. Derives the duration from the
+   * current start and clamps it to [1s, MAX_CLIP] (and to the video length).
+   */
+  function commitEnd(text: string) {
+    setEndDraft(null)
+    const parsed = parseTimecode(text)
+    if (parsed == null) return
+    // Flag (but still clamp) an end that runs past the actual video length, so
+    // the exported window never over-runs the clip.
+    if (videoDur && parsed > videoDur) {
+      setTimeError(`O fim (${timecode(parsed)}) passa da duração do vídeo (${timecode(videoDur)}).`)
+    } else {
+      setTimeError('')
+    }
+    const hardEnd = videoDur || parsed
+    const e = Math.min(Math.max(parsed, start + 1), hardEnd)
+    const len = Math.min(Math.max(1, e - start), MAX_CLIP)
+    setClipLen(len)
+  }
 
   // Whether there's a card to preview/export (recap generated, or a song picked).
   const showCard = appMode === 'recap' ? !!recap : !!selectedHit
@@ -312,6 +418,25 @@ export default function App() {
     }, 0)
   }, [period])
 
+  // Re-fetch the collage when the grid size or period changes after it's been
+  // generated once. The toggles (captions/plays) and the square↔story format are
+  // pure render, so they don't refetch; `user` is intentionally excluded so the
+  // grid doesn't reload on every keystroke (the "Gerar collage" button does that).
+  useEffect(() => {
+    if (appMode !== 'collage' || !collageGenerated) return
+    let active = true
+    setCollageLoading(true)
+    setError(null)
+    fetchTopAlbums(user, period, collageSize * collageSize)
+      .then((a) => active && setCollageAlbums(a))
+      .catch((err) => active && setError(err instanceof Error ? err.message : 'Erro ao buscar álbuns.'))
+      .finally(() => active && setCollageLoading(false))
+    return () => {
+      active = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collageSize, period])
+
   async function generate(e?: FormEvent) {
     e?.preventDefault()
     setError(null)
@@ -342,6 +467,27 @@ export default function App() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // ---- Collage helpers ----
+  /** Fetches the top-albums grid for the current user/period/size. */
+  async function loadCollage() {
+    setError(null)
+    setCollageLoading(true)
+    try {
+      if (source === 'lastfm') localStorage.setItem('lastfm_user', user.trim())
+      const albums = await fetchTopAlbums(user, period, collageSize * collageSize)
+      setCollageAlbums(albums)
+      setCollageGenerated(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao buscar álbuns.')
+    } finally {
+      setCollageLoading(false)
+    }
+  }
+  function generateCollage(e?: FormEvent) {
+    e?.preventDefault()
+    loadCollage()
   }
 
   // ---- Quote helpers ----
@@ -441,6 +587,10 @@ export default function App() {
     setLyricHits([])
     setSelectedHit(null)
     setLyricQuery('')
+    // Collage is its own dataset too — drop it so a stale grid doesn't flash
+    // when the user comes back to the tab.
+    setCollageAlbums([])
+    setCollageGenerated(false)
     removeVideo()
     removeCustomCover()
   }
@@ -563,6 +713,7 @@ export default function App() {
     setVideoDur(0)
     setClipStart(0)
     setClipLen(MAX_CLIP)
+    setTimeError('')
   }
 
   // ---- Custom cover helpers ----
@@ -663,9 +814,13 @@ export default function App() {
     }
   }
 
-  async function handleVideoExport(kind: 'story' | 'feed', customDuration?: number) {
+  async function handleVideoExport(
+    kind: 'story' | 'feed',
+    customDuration?: number,
+    exportingKey: string = kind,
+  ) {
     if (!showCard) return
-    setExporting(kind)
+    setExporting(exportingKey)
     try {
       const asset = await renderExportAsset(kind, customDuration)
       if (!asset) return
@@ -752,6 +907,69 @@ export default function App() {
     }
   }
 
+  // ---- Collage exports ----
+  /** Slugified filename for the collage PNG. */
+  function collageExportName() {
+    const slug = (s: string) =>
+      s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'echo'
+    return `collage-${slug(user)}-${period}-${collageSize}x${collageSize}-${collageFmt}.png`
+  }
+
+  /** Renders the off-screen collage node to a PNG blob. */
+  async function renderCollageBlob(): Promise<Blob | null> {
+    const node = collageRef.current
+    if (!node) return null
+    return nodeToPngBlob(node)
+  }
+
+  async function handleCollageDownload() {
+    if (!collageGenerated) return
+    setExporting('collage')
+    setVstatus('Gerando imagem…')
+    try {
+      const blob = await renderCollageBlob()
+      if (blob) downloadBlob(blob, collageExportName())
+    } catch {
+      setError('Falha ao gerar o PNG do collage. Tente novamente.')
+    } finally {
+      setExporting(null)
+      setVstatus(null)
+    }
+  }
+
+  /** Hands the collage PNG to the OS share sheet, falling back to a download. */
+  async function handleCollageShare() {
+    if (!collageGenerated) return
+    const nav = navigator as Navigator & {
+      share?: (data: ShareData) => Promise<void>
+      canShare?: (data: ShareData) => boolean
+    }
+    if (!nav.share || !nav.canShare) return handleCollageDownload()
+    setExporting('collage-share')
+    setVstatus('Gerando imagem…')
+    try {
+      const blob = await renderCollageBlob()
+      if (!blob) return
+      const file = new File([blob], collageExportName(), { type: 'image/png' })
+      if (!nav.canShare({ files: [file] })) {
+        downloadBlob(blob, collageExportName())
+        return
+      }
+      setVstatus('Abrindo…')
+      try {
+        await nav.share({ files: [file], title: 'Echo', text: 'Meu collage do Echo' })
+      } catch (shareErr) {
+        if (shareErr instanceof DOMException && shareErr.name === 'AbortError') return
+        downloadBlob(blob, collageExportName())
+      }
+    } catch {
+      setError('Falha ao gerar o PNG do collage. Tente novamente.')
+    } finally {
+      setExporting(null)
+      setVstatus(null)
+    }
+  }
+
   function changeSource(next: Source) {
     if (next === source) return
     setSource(next)
@@ -761,6 +979,8 @@ export default function App() {
     // A different source is a different dataset — reset everything derived.
     setRecaps({})
     setGenerated(false)
+    setCollageAlbums([])
+    setCollageGenerated(false)
     setError(null)
     setQuote('')
     setSelected([])
@@ -807,9 +1027,12 @@ export default function App() {
           : undefined,
     }
   }
-  // The plain "baixar foto" button is keyed by its own id (not 'story'/'feed')
-  // so it never lights up a brand button the user didn't click.
-  const dlActive = exporting === 'photo'
+  // The plain download button is keyed by its own ids ('photo' for the still,
+  // 'download' for the video) so it never lights up a brand button the user
+  // didn't click. When a clip is loaded (and the browser can export video), it
+  // downloads the MP4 instead of the PNG.
+  const dlIsVideo = !!videoUrl && !IS_FIREFOX
+  const dlActive = exporting === 'photo' || exporting === 'download'
   const dlBtnProps = {
     className:
       'btn btn--download' + (dlActive ? ' is-exporting' : '') + (dlActive && !exportPct ? ' is-indeterminate' : ''),
@@ -829,11 +1052,15 @@ export default function App() {
         </p>
       </header>
 
-      {/* Top-level mode switch: the recap experience or the lyric card. */}
+      {/* Top-level mode switch: the recap experience, the lyric card, or the
+          album collage. */}
       <div className="segmented segmented--mode">
         <span
           className="segmented__slider"
-          style={{ width: '50%', transform: `translateX(${appMode === 'lyric' ? 100 : 0}%)` }}
+          style={{
+            width: `${100 / 3}%`,
+            transform: `translateX(${['recap', 'lyric', 'collage'].indexOf(appMode) * 100}%)`,
+          }}
         />
         <button
           type="button"
@@ -848,6 +1075,13 @@ export default function App() {
           onClick={() => changeAppMode('lyric')}
         >
           Letra
+        </button>
+        <button
+          type="button"
+          className={`segmented__opt ${appMode === 'collage' ? 'is-active' : ''}`}
+          onClick={() => changeAppMode('collage')}
+        >
+          Collage
         </button>
       </div>
 
@@ -1014,6 +1248,65 @@ export default function App() {
         </div>
       )}
 
+      {appMode === 'collage' && (
+        <form className="controls collage-controls" onSubmit={generateCollage}>
+          <input
+            className="input input--user"
+            placeholder="usuário do Last.fm"
+            value={user}
+            onChange={(e) => {
+              setUser(e.target.value)
+              // Editing the user means the current grid is stale — bring the
+              // "Gerar collage" button back so it's refetched for the new name.
+              setCollageGenerated(false)
+            }}
+          />
+          <div className="segmented">
+            <span
+              className="segmented__slider"
+              style={{
+                width: `${100 / periods.length}%`,
+                transform: `translateX(${periods.indexOf(period) * 100}%)`,
+              }}
+            />
+            {periods.map((p) => (
+              <button
+                type="button"
+                key={p}
+                className={`segmented__opt ${p === period ? 'is-active' : ''}`}
+                onClick={() => setPeriod(p)}
+              >
+                {periodLabel(source, p)}
+              </button>
+            ))}
+          </div>
+          <div className="segmented segmented--grid">
+            <span
+              className="segmented__slider"
+              style={{
+                width: '25%',
+                transform: `translateX(${[3, 4, 5, 10].indexOf(collageSize) * 100}%)`,
+              }}
+            />
+            {[3, 4, 5, 10].map((n) => (
+              <button
+                type="button"
+                key={n}
+                className={`segmented__opt ${n === collageSize ? 'is-active' : ''}`}
+                onClick={() => setCollageSize(n)}
+              >
+                {n}×{n}
+              </button>
+            ))}
+          </div>
+          {!collageGenerated && (
+            <button className="btn btn--primary" type="submit" disabled={collageLoading || !ready}>
+              {collageLoading ? 'Gerando…' : 'Gerar collage'}
+            </button>
+          )}
+        </form>
+      )}
+
       {error && <p className="error">{error}</p>}
       {generated && !recap && !loading && !error && (
         <p className="quote-editor__hint">Sem dados para este período.</p>
@@ -1150,14 +1443,24 @@ export default function App() {
             </button>
             <button
               {...dlBtnProps}
-              onClick={() => handlePngExport(previewFmt, 'photo')}
-              title={`Baixar o recap em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), sem tentar compartilhar.`}
+              onClick={() =>
+                dlIsVideo
+                  ? handleVideoExport(previewFmt, Math.min(15, videoDur || 15), 'download')
+                  : handlePngExport(previewFmt, 'photo')
+              }
+              title={
+                dlIsVideo
+                  ? `Baixar o vídeo do recap em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), 15s — use os botões abaixo para 30s ou 1 min.`
+                  : `Baixar o recap em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), sem tentar compartilhar.`
+              }
             >
               <svg className="btn__brand-mark" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 3v12m0 0-4-4m4 4 4-4" />
                 <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
               </svg>
-              {dlActive ? exportLabel : `Baixar recap · ${previewFmt === 'story' ? 'Story' : 'Feed'}`}
+              {dlActive
+                ? exportLabel
+                : `Baixar recap${dlIsVideo ? ' (vídeo · 15s)' : ''} · ${previewFmt === 'story' ? 'Story' : 'Feed'}`}
             </button>
           </div>
           {videoUrl && !IS_FIREFOX && (
@@ -1257,8 +1560,9 @@ export default function App() {
               <h2 className="panel__title">Vídeo no topo</h2>
             </div>
             <p className="panel__hint">
-              Suba um clipe da música mais ouvida. Ele vira o fundo do topo e o download
-              passa a ser MP4 (máx. {MAX_CLIP}s).
+              Suba um clipe da música mais ouvida. Ele vira o fundo do topo e o botão
+              "Baixar recap" passa a gerar um MP4 de 15s — use os botões abaixo para
+              exportar em 30s ou 1 min (máx. {MAX_CLIP}s).
             </p>
             {IS_FIREFOX && (
               <p className="panel__note">
@@ -1281,63 +1585,66 @@ export default function App() {
                 {videoUrl ? 'Trocar vídeo' : 'Escolher vídeo'}
               </label>
               {videoUrl && (
-                <button className="btn" onClick={removeVideo}>
+                <button className="btn btn--primary" onClick={removeVideo}>
                   Remover vídeo
                 </button>
               )}
             </div>
             {videoUrl && !IS_FIREFOX && (
               <div className="video-editor__controls">
-                <label className="video-editor__row">
-                  <span>Início do trecho: {clock(start)}</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={videoDur ? Math.max(0, videoDur - 1) : MAX_CLIP}
-                    step={0.1}
-                    value={clipStart}
-                    onChange={(e) => {
-                      const val = Number(e.target.value)
-                      setClipStart(val)
-                      if (videoDur && val + clipLen > videoDur) {
-                        setClipLen(Math.max(1, videoDur - val))
-                      }
-                    }}
-                  />
-                </label>
-                <label className="video-editor__row">
-                  <span>Duração: {clock(clipLen)} (máx {clock(MAX_CLIP)})</span>
-                  <input
-                    type="range"
-                    min={1}
-                    max={Math.min(MAX_CLIP, videoDur || MAX_CLIP)}
-                    step={0.5}
-                    value={clipLen}
-                    onChange={(e) => {
-                      const val = Number(e.target.value)
-                      setClipLen(val)
-                      if (videoDur && clipStart + val > videoDur) {
-                        setClipStart(Math.max(0, videoDur - val))
-                      }
-                    }}
-                  />
-                </label>
+                <div className="video-editor__times">
+                  <label className="video-editor__row video-editor__time">
+                    <span>Início</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className={`video-editor__time-input ${timeError ? 'is-error' : ''}`}
+                      placeholder="0:00"
+                      value={startDraft ?? timecode(start)}
+                      onChange={(e) => {
+                        setStartDraft(e.target.value)
+                        if (timeError) setTimeError('')
+                      }}
+                      onBlur={(e) => commitStart(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur()
+                      }}
+                    />
+                  </label>
+                  <label className="video-editor__row video-editor__time">
+                    <span>
+                      Fim
+                      {videoDur > 0 && (
+                        <span className="video-editor__time-total"> / {timecode(videoDur)}</span>
+                      )}
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className={`video-editor__time-input ${timeError ? 'is-error' : ''}`}
+                      placeholder="0:15"
+                      value={endDraft ?? timecode(clipEnd)}
+                      onChange={(e) => {
+                        setEndDraft(e.target.value)
+                        if (timeError) setTimeError('')
+                      }}
+                      onBlur={(e) => commitEnd(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur()
+                      }}
+                    />
+                  </label>
+                </div>
+                {timeError ? (
+                  <span className="video-editor__times-error">{timeError}</span>
+                ) : (
+                  <span className="video-editor__times-hint">
+                    Trecho de {clock(clipLen)} (máx {clock(MAX_CLIP)}) · formato m:ss
+                  </span>
+                )}
                 <div className="video-editor__presets">
                   <span className="video-editor__presets-label">exporte diretamente o clipe em:</span>
                   <div className="video-editor__presets-row">
-                    <button
-                      className="btn"
-                      disabled={!!exporting}
-                      onClick={() => {
-                        const d = Math.min(15, videoDur || 15)
-                        setClipLen(d)
-                        const maxS = Math.max(0, videoDur - d)
-                        setClipStart(prev => Math.min(prev, maxS))
-                        handleVideoExport(previewFmt, d)
-                      }}
-                    >
-                      15 segundos
-                    </button>
                     <button
                       className="btn"
                       disabled={!!exporting}
@@ -1366,7 +1673,7 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-                <button className="btn" onClick={removeVideo}>
+                <button className="btn btn--primary video-editor__remove" onClick={removeVideo}>
                   Remover vídeo
                 </button>
               </div>
@@ -1515,6 +1822,105 @@ export default function App() {
         </>
       )}
 
+      {/* Collage: preview + options + export. Its own block since the collage has
+          different formats (square / story) and a PNG-only export path. */}
+      {appMode === 'collage' && collageGenerated && (
+        <>
+          <div className="segmented segmented--format">
+            <span
+              className="segmented__slider"
+              style={{ width: '50%', transform: `translateX(${collageFmt === 'square' ? 100 : 0}%)` }}
+            />
+            <button
+              type="button"
+              className={`segmented__opt ${collageFmt === 'story' ? 'is-active' : ''}`}
+              onClick={() => setCollageFmt('story')}
+            >
+              Story · 9:16
+            </button>
+            <button
+              type="button"
+              className={`segmented__opt ${collageFmt === 'square' ? 'is-active' : ''}`}
+              onClick={() => setCollageFmt('square')}
+            >
+              Quadrado · 1:1
+            </button>
+          </div>
+
+          <div className="preview">
+            <div
+              className={`preview__frame preview__frame--collage-${collageFmt}`}
+              ref={collagePreviewRef}
+              style={{ height: collageH || undefined }}
+            >
+              <div className="preview__anim" style={{ transform: `scale(${collageScale})` }}>
+                <CollageCard
+                  albums={collageAlbums}
+                  size={collageSize}
+                  format={collageFmt}
+                  captions={collageCaptions}
+                  playcount={collagePlaycount}
+                  user={user}
+                  period={period}
+                  source={source}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="collage-toggles">
+            <label className="collage-toggle">
+              <input
+                type="checkbox"
+                checked={collageCaptions}
+                onChange={(e) => setCollageCaptions(e.target.checked)}
+              />
+              Mostrar legendas
+            </label>
+            <label className="collage-toggle">
+              <input
+                type="checkbox"
+                checked={collagePlaycount}
+                disabled={!collageCaptions}
+                onChange={(e) => setCollagePlaycount(e.target.checked)}
+              />
+              Mostrar plays
+            </label>
+          </div>
+
+          {collageLoading && <p className="quote-editor__hint">Atualizando collage…</p>}
+
+          <div className="export-bar">
+            <button
+              className={`btn btn--instagram ${exporting === 'collage-share' ? 'is-exporting is-indeterminate' : ''}`}
+              disabled={!!exporting}
+              onClick={handleCollageShare}
+            >
+              <svg className="btn__brand-mark" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="2" width="20" height="20" rx="5.5" />
+                <circle cx="12" cy="12" r="5" />
+                <circle cx="17.6" cy="6.4" r="1.15" fill="currentColor" stroke="none" />
+              </svg>
+              {exporting === 'collage-share' ? exportLabel : 'Compartilhar collage'}
+            </button>
+            <button
+              className={`btn btn--download ${exporting === 'collage' ? 'is-exporting is-indeterminate' : ''}`}
+              disabled={!!exporting}
+              onClick={handleCollageDownload}
+              title={`Baixar o collage em ${collageFmt === 'story' ? 'Story (1080×1920)' : 'Quadrado (1080×1080)'}.`}
+            >
+              <svg className="btn__brand-mark" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v12m0 0-4-4m4 4 4-4" />
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+              </svg>
+              {exporting === 'collage'
+                ? exportLabel
+                : `Baixar collage · ${collageFmt === 'story' ? 'Story' : 'Quadrado'}`}
+            </button>
+          </div>
+        </>
+      )}
+
       {/* Off-screen render targets (kept in DOM, out of view). */}
       {showCard && (
         <div className="offscreen" aria-hidden>
@@ -1528,6 +1934,24 @@ export default function App() {
         </div>
       )}
 
+      {/* Off-screen full-size collage — the export target (the preview above is
+          scaled down, so it can't be captured 1:1). */}
+      {appMode === 'collage' && collageGenerated && (
+        <div className="offscreen" aria-hidden>
+          <CollageCard
+            ref={collageRef}
+            albums={collageAlbums}
+            size={collageSize}
+            format={collageFmt}
+            captions={collageCaptions}
+            playcount={collagePlaycount}
+            user={user}
+            period={period}
+            source={source}
+          />
+        </div>
+      )}
+
       {appMode === 'recap' && recap?.source === 'lastfm' && (
         <p className="disclaimer">
           * minutos são estimados (scrobbles no período × duração média das faixas) — o
@@ -1536,7 +1960,7 @@ export default function App() {
       )}
     </div>
 
-    {showCard && (
+    {(showCard || (appMode === 'collage' && collageGenerated)) && (
       <footer className="site-footer">
         <a
           className="site-footer__credit"

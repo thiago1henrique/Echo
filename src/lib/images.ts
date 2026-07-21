@@ -8,6 +8,7 @@
 //    the PNG export works reliably.
 
 interface DeezerArtist {
+  name?: string
   picture_xl?: string
   picture_big?: string
   picture_medium?: string
@@ -42,38 +43,102 @@ export interface TrackHit {
   cover?: string
 }
 
-/** Returns a real artist photo URL from Deezer, or undefined if not found. */
-export async function fetchArtistImage(name: string): Promise<string | undefined> {
+/** Returns the artist photo Last.fm shows on its site (scraped og:image), or undefined. */
+async function fetchLastfmArtistImage(name: string): Promise<string | undefined> {
   try {
-    const url = `/api/deezer?type=artist&q=${encodeURIComponent(name)}`
+    const url = `/api/lastfm-image?artist=${encodeURIComponent(name)}`
     const res = await fetch(url)
     if (!res.ok) return undefined
-    const data = await res.json() as DeezerArtistSearch
-    const a = data.data?.[0]
-    return a?.picture_xl || a?.picture_big || a?.picture_medium || undefined
+    const data = (await res.json()) as { image?: string | null }
+    return data.image || undefined
   } catch (err) {
-    console.error("fetchArtistImage failed for:", name, err)
+    console.error('fetchLastfmArtistImage failed for:', name, err)
     return undefined
   }
 }
 
-/** Returns the album cover art for a track from Deezer, or undefined. */
+// Deezer serves this hash (MD5 of the empty string) as its "artist has no photo"
+// placeholder — a black square. Treat any URL carrying it as "no image".
+const DEEZER_EMPTY = 'd41d8cd98f00b204e9800998ecf8427e'
+
+/**
+ * Returns an artist photo URL from Deezer, or undefined if not found.
+ *
+ * Deezer's search ranks by popularity, not name match — for famous names that
+ * also match an obscure act's tags (e.g. "David Bowie", "The Cure") the first
+ * hit can be that obscure artist with no photo, while the real artist sits
+ * lower in the results. Fetch a few candidates and prefer an exact (case
+ * insensitive) name match over blindly trusting data[0].
+ */
+async function fetchDeezerArtistImage(name: string): Promise<string | undefined> {
+  try {
+    const url = `/api/deezer?type=artist&limit=5&q=${encodeURIComponent(name)}`
+    const res = await fetch(url)
+    if (!res.ok) return undefined
+    const data = await res.json() as DeezerArtistSearch
+    const candidates = data.data ?? []
+    const pictureOf = (a: DeezerArtist) => {
+      const pic = a.picture_xl || a.picture_big || a.picture_medium
+      return pic && !pic.includes(DEEZER_EMPTY) ? pic : undefined
+    }
+    const exact = candidates.find((a) => a.name?.toLowerCase() === name.toLowerCase())
+    return (exact && pictureOf(exact)) ?? candidates.map(pictureOf).find(Boolean)
+  } catch (err) {
+    console.error("fetchDeezerArtistImage failed for:", name, err)
+    return undefined
+  }
+}
+
+/**
+ * Returns a real artist photo URL. Prefers the photo Last.fm shows on its own
+ * site (scraped from the artist page's og:image — the JSON API only returns a
+ * grey star placeholder), falling back to Deezer when Last.fm has no photo.
+ */
+export async function fetchArtistImage(name: string): Promise<string | undefined> {
+  const lastfm = await fetchLastfmArtistImage(name)
+  if (lastfm) return lastfm
+  return fetchDeezerArtistImage(name)
+}
+
+/** Runs a single Deezer track search and returns the first hit's cover URL. */
+async function deezerCover(query: string): Promise<string | undefined> {
+  const url = `/api/deezer?type=track&q=${encodeURIComponent(query)}`
+  const res = await fetch(url)
+  if (!res.ok) return undefined
+  const data = (await res.json()) as DeezerTrackSearch
+  const album = data.data?.[0]?.album
+  return album?.cover_xl || album?.cover_big || album?.cover_medium || undefined
+}
+
+/**
+ * Returns the album cover art for a track from Deezer, or undefined.
+ *
+ * Last.fm track names often carry qualifiers Deezer's strict advanced search
+ * won't match ("Bad - 2012 Remaster", "Swimming Pools (Drank) [Extended]"), so
+ * a single `artist:"…" track:"…"` query returns zero hits and the cover comes
+ * back blank. We try progressively looser queries and take the first that hits.
+ */
 export async function fetchTrackCover(
   artist: string,
   track: string,
 ): Promise<string | undefined> {
-  try {
-    const q = `artist:"${artist}" track:"${track}"`
-    const url = `/api/deezer?type=track&q=${encodeURIComponent(q)}`
-    const res = await fetch(url)
-    if (!res.ok) return undefined
-    const data = await res.json() as DeezerTrackSearch
-    const album = data.data?.[0]?.album
-    return album?.cover_xl || album?.cover_big || album?.cover_medium || undefined
-  } catch (err) {
-    console.error("fetchTrackCover failed for:", artist, track, err)
-    return undefined
+  // Drop trailing qualifiers: everything from the first " - ", "(" or "[".
+  const clean = track.replace(/\s*[-–—([].*$/, '').trim() || track
+  const queries = [
+    `artist:"${artist}" track:"${track}"`, // exact match
+    `artist:"${artist}" track:"${clean}"`, // suffix stripped
+    `${artist} ${clean}`.trim(), // loose free-text
+  ]
+  // Dedupe so we don't fire identical requests when there's no suffix to strip.
+  for (const q of [...new Set(queries)]) {
+    try {
+      const cover = await deezerCover(q)
+      if (cover) return cover
+    } catch (err) {
+      console.error('fetchTrackCover query failed:', q, err)
+    }
   }
+  return undefined
 }
 
 /**
@@ -174,4 +239,52 @@ export async function toDataUrl(url: string | undefined): Promise<string | undef
     console.warn("toDataUrl fetch exception, falling back to cache-busted url:", fetchUrl, err)
     return fetchUrl
   }
+}
+
+/**
+ * Loads an image and bakes a single, static square frame of it into a JPEG data
+ * URL by drawing it once onto a canvas.
+ *
+ * This is what freezes animated GIF covers (Last.fm/Deezer occasionally serve a
+ * GIF as album art): drawing an <img> to a canvas captures only the frame shown
+ * at load time — the first one — so the collage stays a still image and the PNG
+ * export never catches a mid-animation frame. It also center-crops to a square
+ * and resizes, so every cover comes out uniform regardless of its source.
+ *
+ * The source must be CORS-enabled (all our covers go through `proxied`, which
+ * guarantees that) or the canvas taints and export/read-back would throw — we
+ * fall back to the plain data URL in that case so a cover is never lost.
+ */
+export function flattenImage(
+  url: string | undefined,
+  size: number,
+): Promise<string | undefined> {
+  if (!url) return Promise.resolve(undefined)
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(toDataUrl(url))
+          return
+        }
+        // Center-crop the (possibly non-square) source to a square, then scale.
+        const s = Math.min(img.naturalWidth, img.naturalHeight) || size
+        const sx = (img.naturalWidth - s) / 2
+        const sy = (img.naturalHeight - s) / 2
+        ctx.drawImage(img, sx, sy, s, s, 0, 0, size, size)
+        resolve(canvas.toDataURL('image/jpeg', 0.9))
+      } catch {
+        // Tainted canvas (source wasn't CORS-clean) — keep the raw cover.
+        resolve(toDataUrl(url))
+      }
+    }
+    img.onerror = () => resolve(undefined)
+    img.src = url
+  })
 }

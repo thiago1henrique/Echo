@@ -26,7 +26,15 @@
       "Bash(node -e ' *)",
       "Bash(curl -s \"http://127.0.0.1:5173/api/lyrics?artist=Queen&track=Bohemian%20Rhapsody\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:5173/api/lyrics?artist=Queen&track=Bohemian%20Rhapsody\")",
-      "Bash(git restore *)"
+      "Bash(git restore *)",
+      "Bash(node -e \"console.log\\(JSON.stringify\\(require\\('./package.json'\\).scripts,null,2\\)\\)\")",
+      "PowerShell(pnpm exec tsc -b --noEmit)",
+      "PowerShell(pnpm exec eslint src/App.tsx)",
+      "PowerShell(pnpm exec tsc -b 2>&1)",
+      "PowerShell(pnpm exec eslint src/App.tsx src/index.css 2>&1)",
+      "Bash(git status *)",
+      "Bash(pnpm test *)",
+      "Bash(pnpm lint *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\thiag\\AppData\\Local\\Temp\\claude\\d--Dev-Pessoal-Echo\\82dd5f53-108c-410b-9283-f0e28462d9cf\\scratchpad"
