@@ -24,6 +24,7 @@
 
 import { toPng } from 'html-to-image'
 import { activeLineIndex, type SyncedLine } from './lyrics'
+import type { CardStyle } from '../components/LyricCard'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile } from '@ffmpeg/util'
 // Self-hosted ffmpeg core (served same-origin by Vite) — avoids the ~30MB CDN
@@ -63,6 +64,8 @@ export interface LyricLayerOpts {
   variant: 'story' | 'feed'
   /** Song time (s) that the clip's first frame (at `start`) corresponds to. */
   offset: number
+  /** Visual theme (card--style-*), so pre-rendered line images match. */
+  style?: CardStyle
 }
 
 export interface VideoExportOpts {
@@ -172,7 +175,7 @@ async function prepareLyricFrames(
   // flex:1) and push the text out of frame. `flex:none` on the box guards the
   // same for good measure.
   const wrap = document.createElement('div')
-  wrap.className = `card card--${lyric.variant} card--lyric`
+  wrap.className = `card card--${lyric.variant} card--lyric card--style-${lyric.style ?? 'default'}`
   wrap.style.cssText = `position:fixed;left:-99999px;top:0;display:block;width:${rect.w}px;`
   
   // Disable transitions and animations during pre-rendering to prevent any timing or interpolation issues.
@@ -280,11 +283,17 @@ function buildCompositor(
   // the background gradient fills the whole canvas each frame anyway.
   const ctx = canvas.getContext('2d', { alpha: false })!
 
+  // Card colors/theme are read from the rendered node's CSS custom properties
+  // (set by whichever card--style-* class is applied) so the compositor matches
+  // whatever visual style the card is showing instead of a hardcoded palette.
+  const cardStyle = getComputedStyle(overlayNode)
+  const cssVar = (name: string, fallback: string) => cardStyle.getPropertyValue(name).trim() || fallback
+
   // Background gradient is constant — build it once instead of allocating a new
   // gradient object every frame.
   const bgGradient = ctx.createLinearGradient(0, 0, canvasW * 0.4, canvasH)
-  bgGradient.addColorStop(0, '#17121f')
-  bgGradient.addColorStop(1, '#0d0b14')
+  bgGradient.addColorStop(0, cssVar('--c-bg2', '#1f1712'))
+  bgGradient.addColorStop(1, cssVar('--c-bg', '#131010'))
 
   // Offscreen buffer used to dissolve the video's trailing edge into
   // transparency, so the hero blends into the body instead of ending on a hard
@@ -321,8 +330,11 @@ function buildCompositor(
     }
   }
 
-  // Get computed accent color from the DOM
-  const accentColor = getComputedStyle(overlayNode).getPropertyValue('--c-accent').trim() || '#e0472d'
+  const accentColor = cssVar('--c-accent', '#e0472d')
+  // Set by style CSS (e.g. card--style-abnt) to grayscale an uploaded video's
+  // frames the same way its CSS `filter` grayscales a static cover photo —
+  // decoded frames are drawn straight to canvas and never see that CSS rule.
+  const heroFilter = cssVar('--c-hero-filter', 'none')
 
   // Offscreen canvas for drawing color animated minutes text
   const tempCanvas = document.createElement('canvas')
@@ -346,7 +358,11 @@ function buildCompositor(
     // with the fade gradient so the background (already on ctx) shows through.
     hctx.globalCompositeOperation = 'source-over'
     hctx.clearRect(0, 0, hero.w, hero.h)
-    if (frame) hctx.drawImage(frame, sx, sy, sw, sh, 0, 0, hero.w, hero.h)
+    if (frame) {
+      hctx.filter = heroFilter
+      hctx.drawImage(frame, sx, sy, sw, sh, 0, 0, hero.w, hero.h)
+      hctx.filter = 'none'
+    }
     hctx.globalCompositeOperation = 'destination-out'
     hctx.fillStyle = fadeMask
     hctx.fillRect(0, 0, hero.w, hero.h)

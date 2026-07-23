@@ -4,6 +4,11 @@ import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/bricolage-grotesque/index.css'
 import '@fontsource/space-mono/400.css'
 import '@fontsource/space-mono/700.css'
+// Card style variant (LyricCard "Script"): handwriting display font. The
+// "ABNT" variant deliberately uses Times New Roman/Arial — real system fonts,
+// per NBR 14724 — so it needs no webfont here.
+import '@fontsource/caveat/400.css'
+import '@fontsource/caveat/700.css'
 import './index.css'
 import App from './App.tsx'
 

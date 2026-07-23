@@ -6,6 +6,11 @@ import type { CardVariant } from './RecapCard'
 import './RecapCard.css'
 import './LyricCard.css'
 
+/** Visual theme for the lyric card. Only affects colors/type/layout details —
+ *  geometry (hero size, lyric box) stays the same so the video compositor
+ *  (which measures those boxes) doesn't need per-style rects. */
+export type CardStyle = 'default' | 'abnt' | 'script'
+
 interface Props {
   variant: CardVariant
   /** Track title, shown in the hero. */
@@ -43,6 +48,22 @@ interface Props {
   mode?: 'normal' | 'overlay'
   /** Whether the hero video should be paused (disable playback & CPU usage off-screen). */
   paused?: boolean
+  /** Visual theme. Defaults to the standard dark card. */
+  style?: CardStyle
+}
+
+/** ABNT-flavored reference line, e.g. `BOWIE, David. "Heroes". Heroes.` —
+ *  a lighthearted stand-in for an NBR 6023 reference entry, not a literal one
+ *  (we only have a free-text artist name, not a real surname/given-name split). */
+function abntReference(artist: string, title: string, album?: string): string {
+  const words = artist.trim().split(/\s+/).filter(Boolean)
+  const surname = words.length > 1 ? words.pop() : words[0]
+  const given = words.join(' ')
+  const author = surname ? `${surname.toUpperCase()}${given ? `, ${given}` : ''}` : ''
+  // Some titles already contain a quote (e.g. Bowie's "Heroes") — don't add more.
+  const quotedTitle = title ? (/["“]/.test(title) ? title : `"${title}"`) : ''
+  const parts = [author, quotedTitle, album && album !== title ? album : ''].filter(Boolean)
+  return `${parts.join('. ')}.`
 }
 
 /** Rolling window of lyric lines centered on the active one (preview only). */
@@ -136,11 +157,13 @@ export const LyricCard = forwardRef<HTMLDivElement, Props>(function LyricCard(
     live = false,
     mode = 'normal',
     paused = false,
+    style = 'default',
   },
   ref,
 ) {
   const overlay = mode === 'overlay'
   const showLive = live && !!videoUrl && syncedLines.length > 0
+  const isAbnt = style === 'abnt'
 
   // Active line, updated as the clip plays. Kept as an index in state (not the
   // raw time) so the card only re-renders when the highlighted line changes.
@@ -161,7 +184,7 @@ export const LyricCard = forwardRef<HTMLDivElement, Props>(function LyricCard(
   return (
     <div
       ref={ref}
-      className={`card card--${variant} card--lyric ${overlay ? 'card--overlay' : ''} ${
+      className={`card card--${variant} card--lyric card--style-${style} ${overlay ? 'card--overlay' : ''} ${
         videoUrl ? 'card--has-video' : ''
       } ${!showLive && quote ? 'card--lyric-static' : ''}`}
     >
@@ -201,6 +224,13 @@ export const LyricCard = forwardRef<HTMLDivElement, Props>(function LyricCard(
       </div>
 
       <div className="card__body">
+        {isAbnt && !overlay && (cover || videoUrl) && (
+          <p className="card__caption">
+            Figura 1 – {album || title || 'capa do álbum'}
+            <br />
+            <span className="card__caption-source">Fonte: {artist || 'desconhecido'}</span>
+          </p>
+        )}
         <div className="card__lyric">
           {overlay ? (
             // Empty slot — the compositor blits the active line here per frame.
@@ -222,7 +252,7 @@ export const LyricCard = forwardRef<HTMLDivElement, Props>(function LyricCard(
         </div>
         {(artist || title) && (
           <div className="card__lyric-cite">
-            {[title, artist].filter(Boolean).join(' · ')}
+            {isAbnt ? abntReference(artist, title, album) : [title, artist].filter(Boolean).join(' · ')}
           </div>
         )}
       </div>

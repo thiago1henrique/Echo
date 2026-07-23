@@ -211,3 +211,172 @@
   -webkit-mask-image: none;
   mask-image: none;
 }
+
+/* =================== STYLE: ABNT =================== */
+/* A tongue-in-cheek "academic paper" theme: paper background, the two fonts
+   NBR 14724 actually allows (Times New Roman or Arial, both system fonts — no
+   webfont needed), a figure caption under the cover, and the long-quotation
+   formatting NBR 10520 requires (no quote marks, justified). Font size keeps
+   the card's normal large scale — 12pt reads fine on paper, not on a phone.
+   --c-hero-filter is read by the video compositor (videoExport.ts) so an
+   uploaded clip's hero frames get the same grayscale treatment as a photo cover. */
+.card--lyric.card--style-abnt {
+  --c-bg: #f5f2ea;
+  --c-bg2: #ffffff;
+  --c-text: #201d18;
+  --c-muted: #55504a;
+  --c-accent: #201d18;
+  --c-line: rgba(32, 29, 24, 0.18);
+  --c-display: 'Times New Roman', Arial, serif;
+  --c-mono: 'Times New Roman', Arial, serif;
+  --c-hero-filter: grayscale(1) contrast(1.05);
+}
+.card--style-abnt .card__hero-img {
+  filter: var(--c-hero-filter);
+}
+/* NBR 14724 margins: 3cm left/top, 2cm right/bottom — approximated here as a
+   3:2 padding ratio (percentages, so it holds across both Story and Feed).
+   Overrides the base story/feed padding on the same elements. */
+.card--style-abnt .card__hero-text {
+  padding-left: 12%;
+  padding-right: 8%;
+}
+.card--style-abnt .card__body {
+  padding-left: 12%;
+  padding-right: 8%;
+  padding-top: 10%;
+  padding-bottom: 8%;
+}
+.card--style-abnt .card__lyric {
+  padding-left: 0;
+  padding-right: 0;
+}
+.card--style-abnt .card__hero-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(20, 18, 14, 0.25) 0%,
+    rgba(20, 18, 14, 0.35) 40%,
+    rgba(20, 18, 14, 0.82) 100%
+  );
+}
+.card--style-abnt .card__brand-name {
+  text-transform: none;
+  font-weight: 700;
+}
+.card--style-abnt .card__eyebrow {
+  font-family: var(--c-display);
+  font-style: italic;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.card--style-abnt .card__hero-name {
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.card--style-abnt .card__hero-plays {
+  font-family: var(--c-display);
+  font-style: italic;
+}
+/* Figure caption under the cover — left-aligned, like a printed figure legend. */
+.card--style-abnt .card__caption {
+  flex: none;
+  margin: 0 0 20px;
+  font-family: var(--c-display);
+  font-size: 1.1em;
+  line-height: 1.5;
+  text-align: left;
+  color: var(--c-muted);
+}
+.card--style-abnt .card__caption-source {
+  font-style: italic;
+}
+/* NBR 10520 long quotation: no quote marks, justified, 12pt, 1.5 line spacing —
+   flush with the card's left margin (same as the title/citation), not indented. */
+.card--style-abnt .card__quote-mark {
+  display: none;
+}
+.card--style-abnt .card__lyric,
+.card--style-abnt .card__quote {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+/* Narrower text column than the full body width — long lines wrap here
+   instead of running edge to edge, like a printed paragraph column. */
+.card--style-abnt .card__quote-text,
+.card--style-abnt .card__lyric-track {
+  width: 78%;
+}
+/* A full blank line between verses, not just line-height — reads as a clean
+   break at each new verse instead of a running paragraph. */
+.card--style-abnt .card__quote-lines {
+  gap: 1.4em;
+}
+.card--style-abnt .card__quote-lines,
+.card--style-abnt .card__lyric-line {
+  font-family: var(--c-display);
+  font-style: normal;
+  font-weight: 400;
+  text-align: justify;
+  /* Each verse is its own single-line block (not a wrapped paragraph), so
+     plain `justify` never stretches it — that rule only ever kicks in on a
+     line that isn't the last (or only) one in its block. `text-align-last`
+     is the property that also justifies that single/last line. */
+  text-align-last: justify;
+  line-height: 1.5;
+}
+.card--style-abnt .card__lyric-line.is-active {
+  font-weight: 700;
+}
+.card--style-abnt .card__lyric-cite {
+  font-family: var(--c-display);
+  font-style: normal;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  text-align: left;
+  color: var(--c-text);
+}
+
+/* =================== STYLE: SCRIPT =================== */
+/* A softer, handwritten theme — pastel paper background, cursive display type. */
+.card--lyric.card--style-script {
+  --c-bg: #2a1620;
+  --c-bg2: #3c1f2c;
+  --c-text: #fbe9ef;
+  --c-muted: #d8b3c2;
+  --c-accent: #f2a6c4;
+  --c-line: rgba(251, 233, 239, 0.14);
+  --c-display: 'Caveat', cursive;
+  --c-hero-filter: none;
+}
+.card--style-script .card__brand-name {
+  text-transform: none;
+}
+.card--style-script .card__eyebrow {
+  font-family: var(--c-display);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0.5px;
+}
+.card--style-script .card__hero-name {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.card--style-script .card__quote-mark {
+  font-family: var(--c-display);
+}
+.card--style-script .card__quote-lines,
+.card--style-script .card__lyric-line {
+  font-family: var(--c-display);
+  font-style: normal;
+  font-weight: 700;
+}
+.card--style-script .card__lyric-cite {
+  font-family: var(--c-display);
+  text-transform: none;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  font-size: 1.3em;
+}

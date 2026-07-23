@@ -277,6 +277,12 @@
   max-width: 360px;
   margin: 32px auto 16px;
 }
+/* Lyric card theme picker (Padrão / ABNT / Script) — sits above the format
+   toggle when both are shown. */
+.segmented--style {
+  max-width: 360px;
+  margin: 32px auto 0;
+}
 /* ---- swipe-cue: mobile stand-in for the format toggle ----
    Portrait/landscape phone icons shown under the (now swipeable) preview
    card on narrow viewports — a tap fallback for the drag gesture. */

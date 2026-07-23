@@ -13,6 +13,7 @@ import { exportCardVideo } from './lib/videoExport'
 import { downloadBlob } from './lib/download'
 import { RecapCard } from './components/RecapCard'
 import { LyricCard } from './components/LyricCard'
+import type { CardStyle } from './components/LyricCard'
 import { CollageCard } from './components/CollageCard'
 import type { CollageFormat } from './components/CollageCard'
 import { TrackSelect } from './components/TrackSelect'
@@ -103,6 +104,13 @@ export default function App() {
   // only one panel renders at a time instead of stacking all three in a row.
   const [editorTab, setEditorTab] = useState<'cover' | 'video' | 'quote'>('cover')
   const EDITOR_TABS = ['cover', 'video', 'quote'] as const
+  // Visual theme for the lyric card only — the recap card keeps its one look.
+  const [lyricStyle, setLyricStyle] = useState<CardStyle>('default')
+  const LYRIC_STYLES: { id: CardStyle; label: string }[] = [
+    { id: 'default', label: 'Padrão' },
+    { id: 'abnt', label: 'ABNT' },
+    { id: 'script', label: 'Script' },
+  ]
   // Spotify auth state.
   const [spClientId, setSpClientId] = useState(spotify.getClientId())
   const [spConnected, setSpConnected] = useState(spotify.isConnected())
@@ -583,6 +591,7 @@ export default function App() {
     setSyncedLines([])
     setLyricOffset(0)
     setLyricNudge(0)
+    setLyricStyle('default')
     setLyricsError(null)
     setLyricHits([])
     setSelectedHit(null)
@@ -615,6 +624,7 @@ export default function App() {
           live={o.live}
           mode={o.mode}
           paused={o.offscreen}
+          style={lyricStyle}
           {...(videoUrl
             ? { videoUrl, videoStart: start, videoDuration: clipLen }
             : {})}
@@ -774,7 +784,7 @@ export default function App() {
         onStatus: setVstatus,
         lyric:
           appMode === 'lyric' && syncedLines.length > 0
-            ? { lines: syncedLines, variant: kind, offset: lyricOffset + lyricNudge }
+            ? { lines: syncedLines, variant: kind, offset: lyricOffset + lyricNudge, style: lyricStyle }
             : undefined,
       })
       return {
@@ -1314,6 +1324,31 @@ export default function App() {
 
       {showCard && (
         <>
+          {/* Lyric-only theme picker — swaps colors/type/layout details on the
+              card (see CardStyle in LyricCard.tsx). Shown on every viewport since,
+              unlike Story/Feed, the card itself doesn't communicate this choice. */}
+          {appMode === 'lyric' && (
+            <div className="segmented segmented--style">
+              <span
+                className="segmented__slider"
+                style={{
+                  width: `${100 / LYRIC_STYLES.length}%`,
+                  transform: `translateX(${LYRIC_STYLES.findIndex((s) => s.id === lyricStyle) * 100}%)`,
+                }}
+              />
+              {LYRIC_STYLES.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`segmented__opt ${lyricStyle === s.id ? 'is-active' : ''}`}
+                  onClick={() => setLyricStyle(s.id)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Format toggle — drives which layout the preview below shows. Desktop
               only; on mobile the card itself is swiped (see .swipe-cue below). */}
           {isWide && (
