@@ -9,7 +9,13 @@ import './LyricCard.css'
 /** Visual theme for the lyric card. Only affects colors/type/layout details —
  *  geometry (hero size, lyric box) stays the same so the video compositor
  *  (which measures those boxes) doesn't need per-style rects. */
-export type CardStyle = 'default' | 'abnt' | 'script'
+export type CardStyle =
+  | 'default'
+  | 'abnt'
+  | 'vinyl'
+  | 'cassette'
+  | 'polaroid'
+  | 'synthwave'
 
 interface Props {
   variant: CardVariant
@@ -64,6 +70,13 @@ function abntReference(artist: string, title: string, album?: string): string {
   const quotedTitle = title ? (/["“]/.test(title) ? title : `"${title}"`) : ''
   const parts = [author, quotedTitle, album && album !== title ? album : ''].filter(Boolean)
   return `${parts.join('. ')}.`
+}
+
+/** Casual handwritten-on-the-photo caption for the Polaroid style, e.g. `Heroes — David Bowie`. */
+function polaroidCaption(artist: string, title: string, album?: string): string {
+  const parts = [title, artist].filter(Boolean)
+  const line = parts.join(' — ')
+  return album && album !== title ? `${line} (${album})` : line
 }
 
 /** Rolling window of lyric lines centered on the active one (preview only). */
@@ -164,6 +177,18 @@ export const LyricCard = forwardRef<HTMLDivElement, Props>(function LyricCard(
   const overlay = mode === 'overlay'
   const showLive = live && !!videoUrl && syncedLines.length > 0
   const isAbnt = style === 'abnt'
+  const isPolaroid = style === 'polaroid'
+
+  // Long titles wrap to more lines, which needs more room in the hero than a
+  // short one — shrink the type for those instead of always reserving worst-case
+  // space. Mirrors quoteSize in RecapCard.tsx.
+  const titleLength = title.trim().length
+  let titleSize: 'short' | 'medium' | 'long' = 'short'
+  if (titleLength > 20 && titleLength <= 34) {
+    titleSize = 'medium'
+  } else if (titleLength > 34) {
+    titleSize = 'long'
+  }
 
   // Active line, updated as the clip plays. Kept as an index in state (not the
   // raw time) so the card only re-renders when the highlighted line changes.
@@ -218,17 +243,23 @@ export const LyricCard = forwardRef<HTMLDivElement, Props>(function LyricCard(
         </div>
         <div className="card__hero-text">
           <span className="card__eyebrow">{album || 'Letra'}</span>
-          <span className="card__hero-name">{title || '—'}</span>
+          <span className="card__hero-name" data-size={titleSize}>{title || '—'}</span>
           {artist && <span className="card__hero-plays">{artist}</span>}
         </div>
       </div>
 
       <div className="card__body">
-        {isAbnt && !overlay && (cover || videoUrl) && (
+        {(isAbnt || isPolaroid) && !overlay && (cover || videoUrl) && (
           <p className="card__caption">
-            Figura 1 – {album || title || 'capa do álbum'}
-            <br />
-            <span className="card__caption-source">Fonte: {artist || 'desconhecido'}</span>
+            {isAbnt ? (
+              <>
+                Figura 1 – {album || title || 'capa do álbum'}
+                <br />
+                <span className="card__caption-source">Fonte: {artist || 'desconhecido'}</span>
+              </>
+            ) : (
+              polaroidCaption(artist, title, album)
+            )}
           </p>
         )}
         <div className="card__lyric">

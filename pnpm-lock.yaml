@@ -20,7 +20,13 @@ importers:
       '@fontsource-variable/bricolage-grotesque':
         specifier: ^5.2.10
         version: 5.2.10
-      '@fontsource/caveat':
+      '@fontsource/abril-fatface':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/kalam':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/orbitron':
         specifier: ^5.3.0
         version: 5.3.0
       '@fontsource/space-mono':
@@ -221,8 +227,14 @@ packages:
   '@fontsource-variable/bricolage-grotesque@5.2.10':
     resolution: {integrity: sha512-5EDsCqgGpKVcJWE4sg9ydli+t5WM97mISYw5lla/Ev4z71FwXh1oN0YUU8xjkRW9+wBCGD9R+ntAvI8G4bUFJg==}
 
-  '@fontsource/caveat@5.3.0':
-    resolution: {integrity: sha512-eHTfzQxFSW9ABERRLNruHoNJmKed2J7pqTUc5lp4a4POMgXGKpxmWj3d9Hz10kmAg6iuTTLe6UagbA4bnsmfQw==}
+  '@fontsource/abril-fatface@5.3.0':
+    resolution: {integrity: sha512-voKCJEhGGZNdlk+OS3uFRSDV/HWbs6TAy7qKe9wXq96Uzwadfksyk5eyXLa1T5FkEazBgpHRMRSFBKfA3rbKbg==}
+
+  '@fontsource/kalam@5.3.0':
+    resolution: {integrity: sha512-FDkVoDfPDCSN/eO81FOYtUI67eMgpVBJmjBtAqSL0PmEhJyeFY2biC+CR+yEttksgXR9+swpFdYmQTyjwBq80Q==}
+
+  '@fontsource/orbitron@5.3.0':
+    resolution: {integrity: sha512-+BhPsbUAo/AF7sRcf+TEexm+EWWkgTiR9Zwb7AhYIPkc5oplfvw0C45Oc2xlKPhwVEmxG8hHuA6/Ansbl+Bc6w==}
 
   '@fontsource/space-mono@5.2.9':
     resolution: {integrity: sha512-b61faFOHEISQ/pD25G+cfGY9o/WW6lRv6hBQQfpWvEJ4y1V+S4gmth95EVyBE2VL3qDYHeVQ8nBzrplzdXTDDg==}
@@ -1327,7 +1339,11 @@ snapshots:
 
   '@fontsource-variable/bricolage-grotesque@5.2.10': {}
 
-  '@fontsource/caveat@5.3.0': {}
+  '@fontsource/abril-fatface@5.3.0': {}
+
+  '@fontsource/kalam@5.3.0': {}
+
+  '@fontsource/orbitron@5.3.0': {}
 
   '@fontsource/space-mono@5.2.9': {}
 

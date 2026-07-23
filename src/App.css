@@ -277,11 +277,58 @@
   max-width: 360px;
   margin: 32px auto 16px;
 }
-/* Lyric card theme picker (Padrão / ABNT / Script) — sits above the format
-   toggle when both are shown. */
-.segmented--style {
-  max-width: 360px;
+/* Lyric card theme picker — sits above the format toggle when both are shown.
+   Each option is a small card previewing the actual theme (background, accent
+   and display font pulled from LyricCard.css via the .card--style-* swatch)
+   instead of a plain text pill, so the choice is visible before it's made. */
+.style-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
   margin: 32px auto 0;
+}
+.style-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.style-card:hover:not(.is-active) {
+  border-color: var(--text);
+}
+.style-card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.style-card__swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  border-radius: 7px;
+}
+.style-card__aa {
+  font-family: var(--c-display);
+  color: var(--c-accent);
+  font-size: 22px;
+  font-weight: 700;
+}
+.style-card__label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  transition: color 0.2s;
+}
+.style-card.is-active .style-card__label {
+  color: var(--accent);
 }
 /* ---- swipe-cue: mobile stand-in for the format toggle ----
    Portrait/landscape phone icons shown under the (now swipeable) preview

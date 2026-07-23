@@ -109,7 +109,10 @@ export default function App() {
   const LYRIC_STYLES: { id: CardStyle; label: string }[] = [
     { id: 'default', label: 'Padrão' },
     { id: 'abnt', label: 'ABNT' },
-    { id: 'script', label: 'Script' },
+    { id: 'vinyl', label: 'Vinil' },
+    { id: 'cassette', label: 'Cassete' },
+    { id: 'polaroid', label: 'Polaroid' },
+    { id: 'synthwave', label: 'Synthwave' },
   ]
   // Spotify auth state.
   const [spClientId, setSpClientId] = useState(spotify.getClientId())
@@ -1328,22 +1331,20 @@ export default function App() {
               card (see CardStyle in LyricCard.tsx). Shown on every viewport since,
               unlike Story/Feed, the card itself doesn't communicate this choice. */}
           {appMode === 'lyric' && (
-            <div className="segmented segmented--style">
-              <span
-                className="segmented__slider"
-                style={{
-                  width: `${100 / LYRIC_STYLES.length}%`,
-                  transform: `translateX(${LYRIC_STYLES.findIndex((s) => s.id === lyricStyle) * 100}%)`,
-                }}
-              />
+            <div className="style-grid">
               {LYRIC_STYLES.map((s) => (
                 <button
                   key={s.id}
                   type="button"
-                  className={`segmented__opt ${lyricStyle === s.id ? 'is-active' : ''}`}
+                  className={`style-card ${lyricStyle === s.id ? 'is-active' : ''}`}
                   onClick={() => setLyricStyle(s.id)}
                 >
-                  {s.label}
+                  {/* Swatch borrows the real card's theme classes so its colors/font
+                      come straight from LyricCard.css instead of being duplicated here. */}
+                  <span className={`style-card__swatch card card--lyric card--style-${s.id}`}>
+                    <span className="style-card__aa">Aa</span>
+                  </span>
+                  <span className="style-card__label">{s.label}</span>
                 </button>
               ))}
             </div>
@@ -1486,7 +1487,7 @@ export default function App() {
               title={
                 dlIsVideo
                   ? `Baixar o vídeo do recap em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), 15s — use os botões abaixo para 30s ou 1 min.`
-                  : `Baixar o recap em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), sem tentar compartilhar.`
+                  : `Baixar a imagem em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), sem tentar compartilhar.`
               }
             >
               <svg className="btn__brand-mark" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1495,7 +1496,9 @@ export default function App() {
               </svg>
               {dlActive
                 ? exportLabel
-                : `Baixar recap${dlIsVideo ? ' (vídeo · 15s)' : ''} · ${previewFmt === 'story' ? 'Story' : 'Feed'}`}
+                : dlIsVideo
+                  ? `Baixar recap (vídeo · 15s) · ${previewFmt === 'story' ? 'Story' : 'Feed'}`
+                  : `Baixar imagem · ${previewFmt === 'story' ? 'Story' : 'Feed'}`}
             </button>
           </div>
           {videoUrl && !IS_FIREFOX && (
