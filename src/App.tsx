@@ -542,7 +542,7 @@ export default function App() {
     setRecLoading(true)
     try {
       if (source === 'lastfm') localStorage.setItem('lastfm_user', u)
-      const rec = await fetchRecommendation(u)
+      const rec = await fetchRecommendation(u, recSlot)
       setRecommendation(rec)
       setRecGenerated(true)
       setCachedRecommendation(u, recSlot, rec)

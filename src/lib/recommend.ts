@@ -29,6 +29,15 @@ export interface AlbumRecommendation {
 
 class RecommendError extends Error {}
 
+/** djb2 string hash — deterministic across devices/browsers, unlike Math.random(). */
+function stableSeed(input: string): number {
+  let hash = 5381
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 33) ^ input.charCodeAt(i)
+  }
+  return hash >>> 0
+}
+
 export type DaySlot = 'madrugada' | 'manhã' | 'tarde' | 'noite'
 
 /** Which of the four day-parts a given moment falls into (local time). */
@@ -56,7 +65,10 @@ export function slotKey(date: Date = new Date()): string {
  * from Last.fm's wiki; release year from Deezer, since neither Last.fm API
  * exposes one reliably.
  */
-export async function fetchRecommendation(userRaw: string): Promise<AlbumRecommendation> {
+export async function fetchRecommendation(
+  userRaw: string,
+  slot: string = slotKey(),
+): Promise<AlbumRecommendation> {
   const user = userRaw.trim()
   if (!user) throw new RecommendError('Informe seu usuário do Last.fm.')
 
@@ -65,7 +77,11 @@ export async function fetchRecommendation(userRaw: string): Promise<AlbumRecomme
     throw new RecommendError('Não encontrei artistas suficientes no seu histórico recente.')
   }
   const known = new Set(topArtists.map((a) => a.name.toLowerCase()))
-  const seed = topArtists[Math.floor(Math.random() * topArtists.length)]
+  // Deterministic pick from user + day-part slot (not Math.random()) so the
+  // same account gets the same seed artist on every device/browser, matching
+  // the "muda a cada período do dia" promise shown in the UI.
+  const seedIndex = stableSeed(`${user.toLowerCase()}|${slot}`) % topArtists.length
+  const seed = topArtists[seedIndex]
 
   const similar = await getSimilarArtists(seed.name, 10)
   const candidate = similar.find((name) => !known.has(name.toLowerCase())) ?? similar[0]
