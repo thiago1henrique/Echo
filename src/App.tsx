@@ -257,6 +257,8 @@ export default function App() {
   const overlayFeedRef = useRef<HTMLDivElement>(null)
   const exportVideoRef = useRef<HTMLVideoElement>(null)
   const collageRef = useRef<HTMLDivElement>(null)
+  const trimTrackRef = useRef<HTMLDivElement>(null)
+  const rangeDragRef = useRef<{ startX: number; originStart: number; trackWidth: number } | null>(null)
 
   const hasClientId = spClientId.trim().length > 0
   const periods = SOURCE_PERIODS[source]
@@ -293,6 +295,28 @@ export default function App() {
     let e = Math.max(start + MIN_CLIP, Math.min(value, videoDur || value))
     if (e - start > MAX_CLIP) e = start + MAX_CLIP
     setClipLen(e - start)
+  }
+
+  /**
+   * Dragging the selected range itself (not a handle): slides the window left
+   * or right while keeping its length fixed, clamped so it can't run past
+   * either end of the video.
+   */
+  function onRangeDragStart(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!videoDur) return
+    const trackWidth = trimTrackRef.current?.getBoundingClientRect().width
+    if (!trackWidth) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    rangeDragRef.current = { startX: e.clientX, originStart: start, trackWidth }
+  }
+  function onRangeDragMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const drag = rangeDragRef.current
+    if (!drag) return
+    const deltaSec = ((e.clientX - drag.startX) / drag.trackWidth) * videoDur
+    setClipStart(Math.max(0, Math.min(maxStart, drag.originStart + deltaSec)))
+  }
+  function onRangeDragEnd() {
+    rangeDragRef.current = null
   }
 
   // Whether there's a card to preview/export (recap generated, or a song picked).
@@ -1873,13 +1897,17 @@ export default function App() {
                       {videoDur > 0 && <span className="trim-slider__total"> / {timecode(videoDur)}</span>}
                     </span>
                   </div>
-                  <div className="trim-slider__track">
+                  <div className="trim-slider__track" ref={trimTrackRef}>
                     <div
                       className="trim-slider__range"
                       style={{
                         left: `${videoDur ? (start / videoDur) * 100 : 0}%`,
                         right: `${videoDur ? 100 - (clipEnd / videoDur) * 100 : 100}%`,
                       }}
+                      onPointerDown={onRangeDragStart}
+                      onPointerMove={onRangeDragMove}
+                      onPointerUp={onRangeDragEnd}
+                      onPointerCancel={onRangeDragEnd}
                     />
                     <input
                       type="range"
@@ -1908,24 +1936,26 @@ export default function App() {
                 <span className="video-editor__times-hint">
                   Trecho de {clock(clipLen)} (máx {clock(MAX_CLIP)})
                 </span>
-                <div className="video-editor__presets">
-                  <span className="video-editor__presets-label">exporte diretamente o clipe em:</span>
-                  <div className="video-editor__presets-row">
-                    <button
-                      className="btn"
-                      disabled={!!exporting}
-                      onClick={() => {
-                        const d = Math.min(30, videoDur || 30)
-                        setClipLen(d)
-                        const maxS = Math.max(0, videoDur - d)
-                        setClipStart(prev => Math.min(prev, maxS))
-                        handleVideoExport(previewFmt, d)
-                      }}
-                    >
-                      30 segundos
-                    </button>
+                {videoDur > MAX_CLIP && (
+                  <div className="video-editor__presets">
+                    <span className="video-editor__presets-label">exporte diretamente o clipe em:</span>
+                    <div className="video-editor__presets-row">
+                      <button
+                        className="btn"
+                        disabled={!!exporting}
+                        onClick={() => {
+                          const d = Math.min(30, videoDur || 30)
+                          setClipLen(d)
+                          const maxS = Math.max(0, videoDur - d)
+                          setClipStart(prev => Math.min(prev, maxS))
+                          handleVideoExport(previewFmt, d)
+                        }}
+                      >
+                        30 segundos
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
                 <button
                   {...clipBtnProps}
                   onClick={() => handleVideoExport(previewFmt, clipLen, 'download-clip')}

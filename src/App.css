@@ -1025,14 +1025,28 @@
   border-radius: 2px;
   background: var(--border);
 }
+/* Spans the full track height (not just the thin visual line) so there's a
+   comfortable hit target to grab and drag the whole selected range by. */
 .trim-slider__range {
   position: absolute;
+  top: 0;
+  bottom: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.trim-slider__range:active {
+  cursor: grabbing;
+}
+.trim-slider__range::before {
+  content: '';
+  position: absolute;
   top: 50%;
+  left: 0;
+  right: 0;
   height: 4px;
   transform: translateY(-50%);
   border-radius: 2px;
   background: var(--accent);
-  pointer-events: none;
 }
 /* Two overlapping native range inputs make up the dual-handle bar: each
    input's own track is transparent/inert, and pointer-events are re-enabled

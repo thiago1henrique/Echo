@@ -38,7 +38,8 @@
       "Bash(git log *)",
       "Bash(VERCEL_GIT_COMMIT_SHA=abcdef1234567890 pnpm build)",
       "Bash(xargs grep -liE \"TOP ÁLBUNS|TOP ALBUNS|LETRA|COLLAGE\")",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(pnpm exec *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\thiag\\AppData\\Local\\Temp\\claude\\d--Dev-Pessoal-Echo\\82dd5f53-108c-410b-9283-f0e28462d9cf\\scratchpad"
