@@ -102,6 +102,15 @@
   color: var(--text-h);
 }
 
+/* The mode switch docks as a floating pill bar below 640px (see
+   .segmented--mode in App.css) — lift the banner above it so the two don't
+   overlap. */
+@media (max-width: 640px) {
+  .install-banner {
+    bottom: calc(80px + env(safe-area-inset-bottom));
+  }
+}
+
 /* Adjust layout on slightly larger mobile devices and desktop */
 @media (min-width: 480px) {
   .install-banner {

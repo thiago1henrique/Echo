@@ -977,6 +977,15 @@ async function exportViaWebCodecsOffline(opts: VideoExportOpts, file: Blob): Pro
   // Length of the available segment; a shorter clip loops to fill `duration`.
   const segMax = Number.isFinite(trackDuration) && trackDuration > 0 ? trackDuration - start : duration
   const clipLen = Math.max(frameDur, Math.min(duration, segMax))
+  // The audio track's own decodable length often differs from the video
+  // track's (AAC priming/trim, re-muxed files) — bounding its read window by
+  // the video-only `clipLen` made `encodeOfflineAudio` run out of packets
+  // mid-window and tile in silence for the rest. Give audio its own bound so
+  // it loops its actually-decoded content instead of going silent.
+  const audioTrackDuration = audioTrack ? await audioTrack.computeDuration() : trackDuration
+  const audioSegMax =
+    Number.isFinite(audioTrackDuration) && audioTrackDuration > 0 ? audioTrackDuration - start : duration
+  const audioClipLen = Math.max(frameDur, Math.min(duration, audioSegMax))
 
   // ---- Output (mediabunny → MP4) ----
   const output = new Output({
@@ -1006,7 +1015,7 @@ async function exportViaWebCodecsOffline(opts: VideoExportOpts, file: Blob): Pro
   try {
     // ---- Audio ----
     onStatus?.('Processando áudio…')
-    await encodeOfflineAudio(audioSource, audioTrack, start, clipLen, targetSec)
+    await encodeOfflineAudio(audioSource, audioTrack, start, audioClipLen, targetSec)
 
     // ---- Video: fixed 30fps CFR, previous-frame sampling ----
     onStatus?.('Gravando vídeo… 0%')

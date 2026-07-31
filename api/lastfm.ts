@@ -36,11 +36,29 @@ const ALLOWED_METHODS = new Set([
   'user.gettoptracks',
   'user.gettopalbums',
   'user.getrecenttracks',
+  'artist.getsimilar',
+  'artist.gettopalbums',
+  'artist.getinfo',
+  'artist.gettoptags',
+  'album.getinfo',
+  'album.gettoptags',
 ])
 
 // Params the client may forward. api_key/format are set server-side; anything
 // else the caller sends is dropped.
-const ALLOWED_PARAMS = ['method', 'user', 'period', 'limit', 'from', 'to', 'page']
+const ALLOWED_PARAMS = [
+  'method',
+  'user',
+  'period',
+  'limit',
+  'from',
+  'to',
+  'page',
+  'artist',
+  'album',
+  'autocorrect',
+  'lang',
+]
 
 export default async function handler(req: Req, res: Res) {
   const key = process.env.LASTFM_API_KEY

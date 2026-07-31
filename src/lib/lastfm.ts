@@ -110,8 +110,56 @@ interface TopAlbumsResp {
 interface RecentResp {
   recenttracks: { '@attr'?: { total?: string } }
 }
+interface SimilarArtistsResp {
+  similarartists?: { artist?: { name: string }[] }
+}
+interface ArtistTopAlbumsResp {
+  topalbums?: {
+    album?: {
+      name: string
+      playcount?: string
+      artist?: { name: string }
+      image?: LfmImage[]
+    }[]
+  }
+}
+interface AlbumInfoResp {
+  album?: {
+    image?: LfmImage[]
+    wiki?: { summary?: string }
+  }
+}
+interface ArtistInfoResp {
+  artist?: {
+    bio?: { summary?: string }
+  }
+}
+interface TopTagsResp {
+  toptags?: { tag?: { name: string }[] }
+}
 
-async function getTopArtists(
+function normalizeForCompare(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+/**
+ * Last.fm's top-tags lists are community folksonomy, not a curated genre
+ * field — high-vote entries are often just the artist/album name itself
+ * ("PrinceRogersNelson", "prince") rather than anything genre-like. Skips
+ * those before picking the first (highest-voted) tag, then title-cases the
+ * result ("hip hop" → "Hip Hop").
+ */
+function topTagAsGenre(tags: { name: string }[] | undefined, subject: string): string | undefined {
+  const subjectNorm = normalizeForCompare(subject)
+  const hit = tags?.find((t) => {
+    const tagNorm = normalizeForCompare(t.name)
+    return tagNorm.length > 0 && !subjectNorm.includes(tagNorm) && !tagNorm.includes(subjectNorm)
+  })
+  if (!hit) return undefined
+  return hit.name.replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+export async function getTopArtists(
   user: string,
   period: Period,
   limit: number,
@@ -275,4 +323,102 @@ export async function fetchTopAlbums(
     playcount: Number(a.playcount) || 0,
     image: dataUrls[i],
   }))
+}
+
+/** Names of artists Last.fm considers similar to `artist`, most similar first. */
+export async function getSimilarArtists(artist: string, limit: number): Promise<string[]> {
+  const data = await call<SimilarArtistsResp>({
+    method: 'artist.getsimilar',
+    artist,
+    limit: String(limit),
+    autocorrect: '1',
+  })
+  return (data.similarartists?.artist ?? []).map((a) => a.name).filter(Boolean)
+}
+
+/** An artist's most-played albums, per Last.fm's global playcount. */
+export async function getArtistTopAlbums(
+  artist: string,
+  limit: number,
+): Promise<{ name: string; artist: string; playcount: number; lfmImage?: string }[]> {
+  const data = await call<ArtistTopAlbumsResp>({
+    method: 'artist.gettopalbums',
+    artist,
+    limit: String(limit),
+    autocorrect: '1',
+  })
+  return (data.topalbums?.album ?? [])
+    .filter((a) => a.name)
+    .map((a) => ({
+      name: a.name,
+      artist: a.artist?.name || artist,
+      playcount: Number(a.playcount) || 0,
+      lfmImage: pickImage(a.image),
+    }))
+}
+
+/**
+ * An album's Last.fm wiki summary and cover. The wiki text always ends with a
+ * "Read more on Last.fm" link, which is stripped since it's dead weight once
+ * the text is shown outside Last.fm's own site.
+ */
+export async function getAlbumInfo(
+  artist: string,
+  album: string,
+): Promise<{ summary?: string; lfmImage?: string }> {
+  const data = await call<AlbumInfoResp>({
+    method: 'album.getinfo',
+    artist,
+    album,
+    autocorrect: '1',
+    lang: 'pt',
+  })
+  const raw = data.album?.wiki?.summary
+  const summary = raw?.replace(/\s*<a href="[^"]*">Read more on Last\.fm<\/a>\.?/i, '').trim()
+  return { summary: summary || undefined, lfmImage: pickImage(data.album?.image) }
+}
+
+/**
+ * An artist's Last.fm bio summary — used as the recommendation card's
+ * description when the specific album has no wiki entry of its own (fairly
+ * common for anything outside the mainstream catalog).
+ */
+export async function getArtistInfo(artist: string): Promise<{ summary?: string }> {
+  const data = await call<ArtistInfoResp>({
+    method: 'artist.getinfo',
+    artist,
+    autocorrect: '1',
+    lang: 'pt',
+  })
+  const raw = data.artist?.bio?.summary
+  const summary = raw?.replace(/\s*<a href="[^"]*">Read more on Last\.fm<\/a>\.?/i, '').trim()
+  return { summary: summary || undefined }
+}
+
+/**
+ * An album's top community tag, title-cased into a genre label. `album.getinfo`
+ * only echoes the *requesting user's own* tags (needs a session key we don't
+ * have) — the site-wide "top tags" list lives on this separate method instead.
+ */
+export async function getAlbumGenre(artist: string, album: string): Promise<string | undefined> {
+  const data = await call<TopTagsResp>({
+    method: 'album.gettoptags',
+    artist,
+    album,
+    autocorrect: '1',
+  })
+  // Album tag clouds get self-referential in both directions (the album's own
+  // title and, often just as much, the artist's name) — filter against both.
+  return topTagAsGenre(data.toptags?.tag, `${artist} ${album}`)
+}
+
+/** Same deal as {@link getAlbumGenre} but for the artist — used when the
+ *  album itself has no community tags of its own. */
+export async function getArtistGenre(artist: string): Promise<string | undefined> {
+  const data = await call<TopTagsResp>({
+    method: 'artist.gettoptags',
+    artist,
+    autocorrect: '1',
+  })
+  return topTagAsGenre(data.toptags?.tag, artist)
 }

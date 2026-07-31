@@ -3,6 +3,14 @@ import type { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointe
 import type { AlbumStat, Period, Recap, Source } from './types'
 import { periodLabel, SOURCE_PERIODS } from './types'
 import { fetchRecap, fetchTopAlbums } from './lib/lastfm'
+import {
+  currentSlot,
+  fetchRecommendation,
+  getCachedRecommendation,
+  setCachedRecommendation,
+  slotKey,
+} from './lib/recommend'
+import type { AlbumRecommendation } from './lib/recommend'
 import * as spotify from './lib/spotify'
 import { fetchLyricLines, fetchSyncedLyrics } from './lib/lyrics'
 import type { SyncedLine } from './lib/lyrics'
@@ -20,9 +28,21 @@ import { TrackSelect } from './components/TrackSelect'
 import { InstallPrompt } from './components/InstallPrompt'
 import './App.css'
 
-type AppMode = 'recap' | 'lyric' | 'collage'
+type AppMode = 'recap' | 'lyric' | 'collage' | 'recommend'
+const APP_MODES: AppMode[] = ['recap', 'lyric', 'collage', 'recommend']
+
+// Masthead subtitle, swapped per tab so it explains what that mode actually
+// does instead of a single blurb that only describes the recap.
+const MODE_COPY: Record<AppMode, string> = {
+  recap:
+    'Um retrato do que você andou ouvindo, prensado numa imagem pronta pra story do Instagram e feed do Twitter.',
+  lyric: 'Escolha uma música e transforme um trecho da letra num card pronto pra postar.',
+  collage: 'Monte um mosaico com os álbuns que mais tocaram no seu período, pronto pra postar.',
+  recommend: 'Baseado no seu gosto, uma sugestão de álbum novo por período do dia.',
+}
 
 const MAX_CLIP = 60
+const MIN_CLIP = 1
 
 // Above this width the video preview mock lives in the desktop side-margin (a
 // fixed dock); below it, it drops inline between the video panel and the encarte.
@@ -46,25 +66,6 @@ function clock(seconds: number): string {
 function timecode(seconds: number): string {
   const total = Math.max(0, Math.round(seconds))
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
-}
-
-/**
- * Parses what the user typed into the timecode fields. Accepts "m:ss" / "mm:ss"
- * (e.g. "1:05"), bare seconds ("90", "90s"), and tolerates spaces. Returns the
- * time in seconds, or null when the text can't be read as a time.
- */
-function parseTimecode(text: string): number | null {
-  const t = text.trim().toLowerCase().replace(/s$/, '')
-  if (!t) return null
-  if (t.includes(':')) {
-    const [m, s] = t.split(':')
-    const mm = Number(m)
-    const ss = Number(s)
-    if (!Number.isFinite(mm) || !Number.isFinite(ss)) return null
-    return mm * 60 + ss
-  }
-  const n = Number(t)
-  return Number.isFinite(n) ? n : null
 }
 
 /** Dispatches the recap fetch to the selected source. */
@@ -102,8 +103,8 @@ export default function App() {
   // Which editor panel is shown below the export bar — same swap idea as the
   // Story↔Feed toggle above, applied to Capa / Lado B / Verso em destaque, so
   // only one panel renders at a time instead of stacking all three in a row.
-  const [editorTab, setEditorTab] = useState<'cover' | 'video' | 'quote'>('cover')
-  const EDITOR_TABS = ['cover', 'video', 'quote'] as const
+  const [editorTab, setEditorTab] = useState<'cover' | 'video' | 'quote'>('quote')
+  const EDITOR_TABS = ['quote', 'cover', 'video'] as const
   // Visual theme for the lyric card only — the recap card keeps its one look.
   const [lyricStyle, setLyricStyle] = useState<CardStyle>('default')
   const LYRIC_STYLES: { id: CardStyle; label: string }[] = [
@@ -137,6 +138,21 @@ export default function App() {
   const [collageAlbums, setCollageAlbums] = useState<AlbumStat[]>([])
   const [collageGenerated, setCollageGenerated] = useState(false)
   const [collageLoading, setCollageLoading] = useState(false)
+
+  // Recommend-mode state (taste-based album pick, one per day-part).
+  const [recommendation, setRecommendation] = useState<AlbumRecommendation | null>(null)
+  const [recGenerated, setRecGenerated] = useState(false)
+  const [recLoading, setRecLoading] = useState(false)
+  const [recError, setRecError] = useState<string | null>(null)
+  // Ticks once a minute so a stale pick is noticed and replaced the moment a
+  // new day-part starts, even if the tab has been open since the last one.
+  const [recSlot, setRecSlot] = useState(() => slotKey())
+  // "Ler mais" toggle for the description's 6-line clamp — descClamped tracks
+  // whether the text actually overflows at that clamp (measured after paint),
+  // so the toggle only shows up when there's more to read.
+  const [descExpanded, setDescExpanded] = useState(false)
+  const [descClamped, setDescClamped] = useState(false)
+  const descRef = useRef<HTMLParagraphElement>(null)
 
   // Lyric-quote state
   const [quote, setQuote] = useState('')
@@ -176,14 +192,6 @@ export default function App() {
   const [videoDur, setVideoDur] = useState(0)
   const [clipStart, setClipStart] = useState(0)
   const [clipLen, setClipLen] = useState(MAX_CLIP)
-  // Free-text drafts for the start/end timecode fields, so the user can type
-  // (including partial "1:" states) without the value being clamped mid-keystroke.
-  // Null = show the committed value; commit + clamp happen on blur / Enter.
-  const [startDraft, setStartDraft] = useState<string | null>(null)
-  const [endDraft, setEndDraft] = useState<string | null>(null)
-  // Shown under the timecode fields when the user asks for an end past the end
-  // of the video (or a start past its length). Cleared on the next valid commit.
-  const [timeError, setTimeError] = useState('')
   // Whether we're on a wide (desktop) viewport — decides if the video preview
   // mock renders in the side-margin or inline. Tracked in JS (not just CSS) so
   // only one of the two mocks mounts, i.e. we never decode the clip twice.
@@ -265,46 +273,26 @@ export default function App() {
   const clipEnd = start + clipLen
 
   /**
-   * Commits the "Início" field: the start timecode the user typed. Clamps to the
-   * clip, keeps the current duration when it still fits, and shrinks it otherwise
-   * so the window never runs past the end of the uploaded video.
+   * Dragging the start handle of the trim bar. Clamps to [0, videoDur], keeps
+   * it from crossing the end handle, and pulls it forward if the window would
+   * otherwise grow past MAX_CLIP.
    */
-  function commitStart(text: string) {
-    setStartDraft(null)
-    const parsed = parseTimecode(text)
-    if (parsed == null) return
-    if (videoDur && parsed > videoDur) {
-      setTimeError(`O início (${timecode(parsed)}) passa da duração do vídeo (${timecode(videoDur)}).`)
-    } else {
-      setTimeError('')
-    }
-    const hi = videoDur ? Math.max(0, videoDur - 1) : parsed
-    const s = Math.max(0, Math.min(parsed, hi))
-    let len = clipLen
-    if (videoDur && s + len > videoDur) len = Math.max(1, videoDur - s)
+  function onStartHandleChange(value: number) {
+    let s = Math.max(0, Math.min(value, clipEnd - MIN_CLIP))
+    if (clipEnd - s > MAX_CLIP) s = clipEnd - MAX_CLIP
+    s = Math.max(0, s)
     setClipStart(s)
-    setClipLen(Math.min(len, MAX_CLIP))
+    setClipLen(clipEnd - s)
   }
 
   /**
-   * Commits the "Fim" field: the end timecode. Derives the duration from the
-   * current start and clamps it to [1s, MAX_CLIP] (and to the video length).
+   * Dragging the end handle of the trim bar. Clamps to [0, videoDur], keeps it
+   * from crossing the start handle, and caps the window at MAX_CLIP.
    */
-  function commitEnd(text: string) {
-    setEndDraft(null)
-    const parsed = parseTimecode(text)
-    if (parsed == null) return
-    // Flag (but still clamp) an end that runs past the actual video length, so
-    // the exported window never over-runs the clip.
-    if (videoDur && parsed > videoDur) {
-      setTimeError(`O fim (${timecode(parsed)}) passa da duração do vídeo (${timecode(videoDur)}).`)
-    } else {
-      setTimeError('')
-    }
-    const hardEnd = videoDur || parsed
-    const e = Math.min(Math.max(parsed, start + 1), hardEnd)
-    const len = Math.min(Math.max(1, e - start), MAX_CLIP)
-    setClipLen(len)
+  function onEndHandleChange(value: number) {
+    let e = Math.max(start + MIN_CLIP, Math.min(value, videoDur || value))
+    if (e - start > MAX_CLIP) e = start + MAX_CLIP
+    setClipLen(e - start)
   }
 
   // Whether there's a card to preview/export (recap generated, or a song picked).
@@ -448,6 +436,49 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collageSize, period])
 
+  // Ticks once a minute so a stale pick is noticed and replaced automatically
+  // — the effect below refetches once `recSlot` no longer matches the cached
+  // slot, which is what makes the recommendation update at each day-part.
+  useEffect(() => {
+    const id = setInterval(() => setRecSlot(slotKey()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // On entering the tab, or when the day-part flips while it's open, reuse a
+  // same-slot cached pick instead of refetching. The cache is keyed by slot,
+  // so it goes stale the moment madrugada/manhã/tarde/noite changes; if we
+  // already had a pick before that happened, fetch its replacement automatically.
+  useEffect(() => {
+    if (appMode !== 'recommend') return
+    const u = user.trim()
+    if (!u) return
+    const cached = getCachedRecommendation(u, recSlot)
+    if (cached) {
+      setTimeout(() => {
+        setRecommendation(cached)
+        setRecGenerated(true)
+        setRecError(null)
+      }, 0)
+    } else if (recGenerated) {
+      loadRecommendation()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appMode, recSlot])
+
+  // Collapse back to the clamp on every new pick, then measure (post-paint)
+  // whether the clamp is actually cutting text off, so "Ler mais" only shows
+  // up when there's more to read.
+  useEffect(() => {
+    setDescExpanded(false)
+  }, [recommendation?.album, recommendation?.artist])
+
+  useEffect(() => {
+    if (descExpanded) return
+    const el = descRef.current
+    if (!el) return
+    setDescClamped(el.scrollHeight > el.clientHeight + 1)
+  }, [recommendation?.description, descExpanded])
+
   async function generate(e?: FormEvent) {
     e?.preventDefault()
     setError(null)
@@ -499,6 +530,27 @@ export default function App() {
   function generateCollage(e?: FormEvent) {
     e?.preventDefault()
     loadCollage()
+  }
+
+  // ---- Recommend helpers ----
+  /** Fetches a fresh taste-based pick and caches it against the current day-part. */
+  async function loadRecommendation(e?: FormEvent) {
+    e?.preventDefault()
+    const u = user.trim()
+    if (!u) return
+    setRecError(null)
+    setRecLoading(true)
+    try {
+      if (source === 'lastfm') localStorage.setItem('lastfm_user', u)
+      const rec = await fetchRecommendation(u)
+      setRecommendation(rec)
+      setRecGenerated(true)
+      setCachedRecommendation(u, recSlot, rec)
+    } catch (err) {
+      setRecError(err instanceof Error ? err.message : 'Erro ao buscar recomendação.')
+    } finally {
+      setRecLoading(false)
+    }
   }
 
   // ---- Quote helpers ----
@@ -586,7 +638,7 @@ export default function App() {
     if (next === appMode) return
     setAppMode(next)
     setError(null)
-    setEditorTab('cover')
+    setEditorTab('quote')
     // Reset per-experience derived state so nothing carries over.
     setQuote('')
     setSelected([])
@@ -726,7 +778,6 @@ export default function App() {
     setVideoDur(0)
     setClipStart(0)
     setClipLen(MAX_CLIP)
-    setTimeError('')
   }
 
   // ---- Custom cover helpers ----
@@ -1046,23 +1097,35 @@ export default function App() {
   // downloads the MP4 instead of the PNG.
   const dlIsVideo = !!videoUrl && !IS_FIREFOX
   const dlActive = exporting === 'photo' || exporting === 'download'
+  // Mirrors the start clamp `renderExportAsset` applies for this button's fixed
+  // 15s duration (which can differ from `start`, clamped against `clipLen`),
+  // so the label shows exactly where the downloaded clip will begin.
+  const dlStart = Math.min(clipStart, Math.max(0, videoDur - 15))
   const dlBtnProps = {
     className:
       'btn btn--download' + (dlActive ? ' is-exporting' : '') + (dlActive && !exportPct ? ' is-indeterminate' : ''),
     disabled: !!exporting,
     style: dlActive && exportPct ? ({ '--progress': `${exportPct}%` } as CSSProperties) : undefined,
   }
+  // Downloads exactly the trim bar's current selection (any length up to
+  // MAX_CLIP), as opposed to the fixed-duration buttons above.
+  const clipActive = exporting === 'download-clip'
+  const clipBtnProps = {
+    className:
+      'btn btn--download video-editor__download' +
+      (clipActive ? ' is-exporting' : '') +
+      (clipActive && !exportPct ? ' is-indeterminate' : ''),
+    disabled: !!exporting,
+    style: clipActive && exportPct ? ({ '--progress': `${exportPct}%` } as CSSProperties) : undefined,
+  }
 
   return (
     <>
-    <div className="app" data-source={source}>
+    <div className="app" data-source={source} data-daypart={appMode === 'recommend' ? currentSlot() : undefined}>
       <header className="masthead">
         <span className="masthead__cat">Ecoe para todos</span>
         <h1 className="masthead__title">Echo</h1>
-        <p className="masthead__sub">
-          Um retrato do que você andou ouvindo, prensado numa imagem pronta pra
-          story do Instagram e feed do Twitter.
-        </p>
+        <p className="masthead__sub">{MODE_COPY[appMode]}</p>
       </header>
 
       {/* Top-level mode switch: the recap experience, the lyric card, or the
@@ -1071,30 +1134,61 @@ export default function App() {
         <span
           className="segmented__slider"
           style={{
-            width: `${100 / 3}%`,
-            transform: `translateX(${['recap', 'lyric', 'collage'].indexOf(appMode) * 100}%)`,
+            width: `${100 / APP_MODES.length}%`,
+            transform: `translateX(${APP_MODES.indexOf(appMode) * 100}%)`,
           }}
         />
         <button
           type="button"
           className={`segmented__opt ${appMode === 'recap' ? 'is-active' : ''}`}
           onClick={() => changeAppMode('recap')}
+          aria-label="Top álbuns"
         >
-          Top álbuns
+          <svg className="segmented__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="6" y1="20" x2="6" y2="14" />
+            <line x1="12" y1="20" x2="12" y2="9" />
+            <line x1="18" y1="20" x2="18" y2="4" />
+          </svg>
+          <span className="segmented__label">Top álbuns</span>
         </button>
         <button
           type="button"
           className={`segmented__opt ${appMode === 'lyric' ? 'is-active' : ''}`}
           onClick={() => changeAppMode('lyric')}
+          aria-label="Letra"
         >
-          Letra
+          <svg className="segmented__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="2" width="6" height="12" rx="3" />
+            <path d="M5 10a7 7 0 0 0 14 0" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+          </svg>
+          <span className="segmented__label">Letra</span>
         </button>
         <button
           type="button"
           className={`segmented__opt ${appMode === 'collage' ? 'is-active' : ''}`}
           onClick={() => changeAppMode('collage')}
+          aria-label="Collage"
         >
-          Collage
+          <svg className="segmented__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1.5" />
+            <rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" />
+            <rect x="14" y="14" width="7" height="7" rx="1.5" />
+          </svg>
+          <span className="segmented__label">Collage</span>
+        </button>
+        <button
+          type="button"
+          className={`segmented__opt ${appMode === 'recommend' ? 'is-active' : ''}`}
+          onClick={() => changeAppMode('recommend')}
+          aria-label="Descobrir"
+        >
+          <svg className="segmented__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M6.5 6.5l1.8 1.8M15.7 15.7l1.8 1.8M17.5 6.5l-1.8 1.8M8.3 15.7l-1.8 1.8" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <span className="segmented__label">Descobrir</span>
         </button>
       </div>
 
@@ -1320,6 +1414,92 @@ export default function App() {
         </form>
       )}
 
+      {appMode === 'recommend' && (
+        <form className="controls" onSubmit={loadRecommendation}>
+          <input
+            className="input input--user"
+            placeholder="usuário do Last.fm"
+            value={user}
+            onChange={(e) => {
+              setUser(e.target.value)
+              // Editing the user means the current pick is stale — bring the
+              // "Descobrir" button back so it's refetched for the new name.
+              setRecGenerated(false)
+              setRecommendation(null)
+              setRecError(null)
+            }}
+          />
+          {!recGenerated && (
+            <button className="btn btn--primary" type="submit" disabled={recLoading || !ready}>
+              {recLoading ? 'Buscando…' : 'Descobrir álbum'}
+            </button>
+          )}
+        </form>
+      )}
+
+      {appMode === 'recommend' && recError && <p className="error">{recError}</p>}
+
+      {appMode === 'recommend' && recLoading && (
+        <p className="quote-editor__hint">Farejando o seu gosto…</p>
+      )}
+
+      {appMode === 'recommend' && recommendation && !recLoading && (
+        <section className="panel recommend-panel">
+          <div className="panel__head">
+            <span className="eyebrow">Baseado no seu gosto</span>
+            <h2 className="panel__title">Recomendamos: {recommendation.album}</h2>
+          </div>
+          <div className="recommend-card">
+            <div className="recommend-card__row">
+              {recommendation.image ? (
+                <img
+                  className="recommend-card__cover"
+                  src={recommendation.image}
+                  alt={`Capa de ${recommendation.album}`}
+                />
+              ) : (
+                <span className="recommend-card__cover recommend-card__cover--empty" aria-hidden />
+              )}
+              <div className="recommend-card__meta">
+                <span className="recommend-card__artist">{recommendation.artist}</span>
+                {recommendation.year && (
+                  <span className="recommend-card__year">{recommendation.year}</span>
+                )}
+                {recommendation.genre && (
+                  <span className="recommend-card__genre">{recommendation.genre}</span>
+                )}
+              </div>
+            </div>
+            <p
+              ref={descRef}
+              className={`recommend-card__desc ${descExpanded ? 'recommend-card__desc--expanded' : ''}`}
+            >
+              {recommendation.description ? (
+                <>
+                  {recommendation.descriptionIsArtist && <>Sobre {recommendation.artist}: </>}
+                  {recommendation.description}
+                </>
+              ) : (
+                'Sem descrição disponível para este álbum.'
+              )}
+            </p>
+            {descClamped && (
+              <button
+                type="button"
+                className="recommend-card__more"
+                onClick={() => setDescExpanded((v) => !v)}
+              >
+                {descExpanded ? 'Ler menos' : 'Ler mais'}
+              </button>
+            )}
+          </div>
+          <p className="panel__hint recommend-panel__foot">
+            Sugerido porque <strong>você ouve bastante {recommendation.seedArtist}</strong>. A dica
+            muda a cada período do dia, <strong>essa é a da {currentSlot()}</strong>.
+          </p>
+        </section>
+      )}
+
       {error && <p className="error">{error}</p>}
       {generated && !recap && !loading && !error && (
         <p className="quote-editor__hint">Sem dados para este período.</p>
@@ -1486,7 +1666,7 @@ export default function App() {
               }
               title={
                 dlIsVideo
-                  ? `Baixar o vídeo do recap em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), 15s — use os botões abaixo para 30s ou 1 min.`
+                  ? `Baixar o vídeo do recap em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), a partir de ${timecode(dlStart)}, 15s — use os botões abaixo para 30s ou 1 min.`
                   : `Baixar a imagem em ${previewFmt === 'story' ? 'Story' : 'Feed'} (${previewFmt === 'story' ? '1080×1920' : '1600×900'}), sem tentar compartilhar.`
               }
             >
@@ -1497,7 +1677,7 @@ export default function App() {
               {dlActive
                 ? exportLabel
                 : dlIsVideo
-                  ? `Baixar recap (vídeo · 15s) · ${previewFmt === 'story' ? 'Story' : 'Feed'}`
+                  ? `Baixar de ${timecode(dlStart)} · 15s · ${previewFmt === 'story' ? 'Story' : 'Feed'}`
                   : `Baixar imagem · ${previewFmt === 'story' ? 'Story' : 'Feed'}`}
             </button>
           </div>
@@ -1528,6 +1708,15 @@ export default function App() {
               />
               <button
                 type="button"
+                className={`segmented__opt ${editorTab === 'quote' ? 'is-active' : ''} ${
+                  quote ? 'has-content' : ''
+                }`}
+                onClick={() => setEditorTab('quote')}
+              >
+                Verso
+              </button>
+              <button
+                type="button"
                 className={`segmented__opt ${editorTab === 'cover' ? 'is-active' : ''} ${
                   customCoverUrl ? 'has-content' : ''
                 }`}
@@ -1543,15 +1732,6 @@ export default function App() {
                 onClick={() => setEditorTab('video')}
               >
                 Lado B
-              </button>
-              <button
-                type="button"
-                className={`segmented__opt ${editorTab === 'quote' ? 'is-active' : ''} ${
-                  quote ? 'has-content' : ''
-                }`}
-                onClick={() => setEditorTab('quote')}
-              >
-                Verso
               </button>
           </div>
 
@@ -1630,56 +1810,49 @@ export default function App() {
             </div>
             {videoUrl && !IS_FIREFOX && (
               <div className="video-editor__controls">
-                <div className="video-editor__times">
-                  <label className="video-editor__row video-editor__time">
-                    <span>Início</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      className={`video-editor__time-input ${timeError ? 'is-error' : ''}`}
-                      placeholder="0:00"
-                      value={startDraft ?? timecode(start)}
-                      onChange={(e) => {
-                        setStartDraft(e.target.value)
-                        if (timeError) setTimeError('')
-                      }}
-                      onBlur={(e) => commitStart(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') e.currentTarget.blur()
-                      }}
-                    />
-                  </label>
-                  <label className="video-editor__row video-editor__time">
-                    <span>
-                      Fim
-                      {videoDur > 0 && (
-                        <span className="video-editor__time-total"> / {timecode(videoDur)}</span>
-                      )}
+                <div className="trim-slider">
+                  <div className="trim-slider__labels">
+                    <span className="trim-slider__label">{timecode(start)}</span>
+                    <span className="trim-slider__label">
+                      {timecode(clipEnd)}
+                      {videoDur > 0 && <span className="trim-slider__total"> / {timecode(videoDur)}</span>}
                     </span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      className={`video-editor__time-input ${timeError ? 'is-error' : ''}`}
-                      placeholder="0:15"
-                      value={endDraft ?? timecode(clipEnd)}
-                      onChange={(e) => {
-                        setEndDraft(e.target.value)
-                        if (timeError) setTimeError('')
-                      }}
-                      onBlur={(e) => commitEnd(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') e.currentTarget.blur()
+                  </div>
+                  <div className="trim-slider__track">
+                    <div
+                      className="trim-slider__range"
+                      style={{
+                        left: `${videoDur ? (start / videoDur) * 100 : 0}%`,
+                        right: `${videoDur ? 100 - (clipEnd / videoDur) * 100 : 100}%`,
                       }}
                     />
-                  </label>
+                    <input
+                      type="range"
+                      className="trim-slider__input"
+                      aria-label="Início do trecho"
+                      min={0}
+                      max={videoDur || 0}
+                      step={0.1}
+                      value={start}
+                      disabled={!videoDur}
+                      onChange={(e) => onStartHandleChange(Number(e.target.value))}
+                    />
+                    <input
+                      type="range"
+                      className="trim-slider__input"
+                      aria-label="Fim do trecho"
+                      min={0}
+                      max={videoDur || 0}
+                      step={0.1}
+                      value={clipEnd}
+                      disabled={!videoDur}
+                      onChange={(e) => onEndHandleChange(Number(e.target.value))}
+                    />
+                  </div>
                 </div>
-                {timeError ? (
-                  <span className="video-editor__times-error">{timeError}</span>
-                ) : (
-                  <span className="video-editor__times-hint">
-                    Trecho de {clock(clipLen)} (máx {clock(MAX_CLIP)}) · formato m:ss
-                  </span>
-                )}
+                <span className="video-editor__times-hint">
+                  Trecho de {clock(clipLen)} (máx {clock(MAX_CLIP)})
+                </span>
                 <div className="video-editor__presets">
                   <span className="video-editor__presets-label">exporte diretamente o clipe em:</span>
                   <div className="video-editor__presets-row">
@@ -1711,6 +1884,13 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+                <button
+                  {...clipBtnProps}
+                  onClick={() => handleVideoExport(previewFmt, clipLen, 'download-clip')}
+                  title={`Baixar o trecho selecionado (${timecode(start)}–${timecode(clipEnd)}) em ${previewFmt === 'story' ? 'Story' : 'Feed'}.`}
+                >
+                  {clipActive ? exportLabel : `Baixar ${clock(clipLen)} de vídeo`}
+                </button>
                 <button className="btn btn--primary video-editor__remove" onClick={removeVideo}>
                   Remover vídeo
                 </button>
@@ -1998,7 +2178,9 @@ export default function App() {
       )}
     </div>
 
-    {(showCard || (appMode === 'collage' && collageGenerated)) && (
+    {(showCard ||
+      (appMode === 'collage' && collageGenerated) ||
+      (appMode === 'recommend' && recGenerated)) && (
       <footer className="site-footer">
         <a
           className="site-footer__credit"

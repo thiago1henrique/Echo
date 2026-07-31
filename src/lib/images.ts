@@ -178,6 +178,54 @@ export async function searchTracks(query: string, limit = 8): Promise<TrackHit[]
   }
 }
 
+interface DeezerAlbumSearch {
+  data?: { id?: number }[]
+}
+interface DeezerAlbumDetail {
+  release_date?: string
+}
+
+/**
+ * Returns an album's release year, or undefined if it can't be resolved.
+ *
+ * Neither Last.fm's album.getInfo nor Deezer's album search expose a release
+ * date — only Deezer's single-album resource does — so this resolves the
+ * album's Deezer id via search, then fetches that resource for `release_date`.
+ *
+ * Last.fm sometimes credits a fuller artist name than Deezer catalogs under
+ * (e.g. "Prince and the New Power Generation" vs. Deezer's plain "Prince"),
+ * which makes the strict artist:"" operator match nothing. Falls back to a
+ * qualifier-stripped artist name in that case.
+ */
+export async function fetchAlbumReleaseYear(artist: string, album: string): Promise<number | undefined> {
+  // Drop a trailing "and the X" / "& X" / "feat. X" credit — the qualifier
+  // that most often diverges from Deezer's canonical artist name.
+  const clean = artist.replace(/\s+(and|&|feat\.?|featuring|with)\s+.*$/i, '').trim() || artist
+  const queries = [
+    `artist:"${artist}" album:"${album}"`,
+    `artist:"${clean}" album:"${album}"`,
+  ]
+  try {
+    let id: number | undefined
+    for (const q of [...new Set(queries)]) {
+      const searchRes = await fetch(`/api/deezer?type=album&q=${encodeURIComponent(q)}`)
+      if (!searchRes.ok) continue
+      const search = (await searchRes.json()) as DeezerAlbumSearch
+      id = search.data?.[0]?.id
+      if (id) break
+    }
+    if (!id) return undefined
+    const detailRes = await fetch(`/api/deezer?type=album&id=${id}`)
+    if (!detailRes.ok) return undefined
+    const detail = (await detailRes.json()) as DeezerAlbumDetail
+    const year = detail.release_date ? Number(detail.release_date.slice(0, 4)) : NaN
+    return Number.isFinite(year) ? year : undefined
+  } catch (err) {
+    console.error('fetchAlbumReleaseYear failed for:', artist, album, err)
+    return undefined
+  }
+}
+
 /**
  * Wraps any image URL in the weserv proxy so it is served with CORS headers
  * (required for fetching cross-origin images into a data URL). Optionally resizes.

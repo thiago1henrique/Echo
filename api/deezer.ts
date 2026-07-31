@@ -13,13 +13,23 @@ interface Res {
 export default async function handler(req: Req, res: Res) {
   const q = String(req.query.q ?? '')
   const type = String(req.query.type ?? 'artist')
+  const id = String(req.query.id ?? '')
   // Clamp the requested result count to a sane range (default 1, max 25).
   const limit = Math.min(25, Math.max(1, Number(req.query.limit) || 1))
 
-  const upstreamUrl =
-    type === 'artist'
-      ? `https://api.deezer.com/search/artist?limit=${limit}&q=${encodeURIComponent(q)}`
-      : `https://api.deezer.com/search?limit=${limit}&q=${encodeURIComponent(q)}`
+  // Deezer's search endpoints never return an album's release date — only the
+  // full album resource does — so `type=album` with an `id` fetches that
+  // resource directly instead of searching.
+  let upstreamUrl: string
+  if (type === 'album' && id) {
+    upstreamUrl = `https://api.deezer.com/album/${encodeURIComponent(id)}`
+  } else if (type === 'album') {
+    upstreamUrl = `https://api.deezer.com/search/album?limit=${limit}&q=${encodeURIComponent(q)}`
+  } else if (type === 'artist') {
+    upstreamUrl = `https://api.deezer.com/search/artist?limit=${limit}&q=${encodeURIComponent(q)}`
+  } else {
+    upstreamUrl = `https://api.deezer.com/search?limit=${limit}&q=${encodeURIComponent(q)}`
+  }
 
   try {
     const upstream = await fetch(upstreamUrl)

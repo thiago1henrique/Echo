@@ -38,6 +38,20 @@
   --accent-spotify: #1db954;
   --accent-spotify-bg: rgba(29, 185, 84, 0.1);
   --accent-spotify-border: rgba(29, 185, 84, 0.38);
+  /* Day-part accents — Descobrir only (see .app[data-daypart] in App.css),
+     one mood per slot instead of the source crimson/green. */
+  --accent-madrugada: #5b3fae;
+  --accent-madrugada-bg: rgba(91, 63, 174, 0.09);
+  --accent-madrugada-border: rgba(91, 63, 174, 0.35);
+  --accent-manha: #b8791a;
+  --accent-manha-bg: rgba(184, 121, 26, 0.1);
+  --accent-manha-border: rgba(184, 121, 26, 0.38);
+  --accent-tarde: #c1531f;
+  --accent-tarde-bg: rgba(193, 83, 31, 0.09);
+  --accent-tarde-border: rgba(193, 83, 31, 0.35);
+  --accent-noite: #35519e;
+  --accent-noite-bg: rgba(53, 81, 158, 0.09);
+  --accent-noite-border: rgba(53, 81, 158, 0.35);
   --accent: var(--accent-lastfm);
   --accent-bg: var(--accent-lastfm-bg);
   --accent-border: var(--accent-lastfm-border);
@@ -83,6 +97,18 @@
     --accent-spotify: #1ed760;
     --accent-spotify-bg: rgba(30, 215, 96, 0.15);
     --accent-spotify-border: rgba(30, 215, 96, 0.42);
+    --accent-madrugada: #8668e8;
+    --accent-madrugada-bg: rgba(134, 104, 232, 0.15);
+    --accent-madrugada-border: rgba(134, 104, 232, 0.42);
+    --accent-manha: #e0a53f;
+    --accent-manha-bg: rgba(224, 165, 63, 0.15);
+    --accent-manha-border: rgba(224, 165, 63, 0.42);
+    --accent-tarde: #ec7d3d;
+    --accent-tarde-bg: rgba(236, 125, 61, 0.15);
+    --accent-tarde-border: rgba(236, 125, 61, 0.42);
+    --accent-noite: #5c7de0;
+    --accent-noite-bg: rgba(92, 125, 224, 0.15);
+    --accent-noite-border: rgba(92, 125, 224, 0.42);
     --danger: #ff6b5e;
     --danger-bg: rgba(255, 107, 94, 0.14);
     --accent: var(--accent-lastfm);
@@ -108,6 +134,8 @@
   width: 100%;
   min-height: 100svh;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 body {
