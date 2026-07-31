@@ -359,9 +359,16 @@ function buildCompositor(
     hctx.globalCompositeOperation = 'source-over'
     hctx.clearRect(0, 0, hero.w, hero.h)
     if (frame) {
-      hctx.filter = heroFilter
-      hctx.drawImage(frame, sx, sy, sw, sh, 0, 0, hero.w, hero.h)
-      hctx.filter = 'none'
+      // ctx.filter forces a much slower rasterization path (notably on
+      // WebKit/mobile GPUs) — skip touching it entirely for the common case
+      // (no filter styled), instead of assigning a no-op 'none' every frame.
+      if (heroFilter !== 'none') {
+        hctx.filter = heroFilter
+        hctx.drawImage(frame, sx, sy, sw, sh, 0, 0, hero.w, hero.h)
+        hctx.filter = 'none'
+      } else {
+        hctx.drawImage(frame, sx, sy, sw, sh, 0, 0, hero.w, hero.h)
+      }
     }
     hctx.globalCompositeOperation = 'destination-out'
     hctx.fillStyle = fadeMask
@@ -516,16 +523,26 @@ async function prepareVideo(video: HTMLVideoElement, start: number) {
 // WebCodecs path (fast)
 // ===========================================================================
 
-function hasWebCodecs(): boolean {
+// Core WebCodecs surface needed by BOTH the offline (Tier 1) and real-time
+// (Tier 2) paths.
+function hasWebCodecsCore(): boolean {
   return (
     typeof VideoEncoder !== 'undefined' &&
     typeof AudioEncoder !== 'undefined' &&
     typeof VideoFrame !== 'undefined' &&
-    typeof AudioData !== 'undefined' &&
-    // We tap the clip's audio through a MediaStreamTrackProcessor; without it
-    // (Safari) there's no audio, so defer to the MediaRecorder fallback.
-    typeof MediaStreamTrackProcessor !== 'undefined'
+    typeof AudioData !== 'undefined'
   )
+}
+
+// Tier 2 additionally taps the clip's audio live through a
+// MediaStreamTrackProcessor. Safari has full WebCodecs support (since 16.4)
+// but lacks MediaStreamTrackProcessor — that used to also disable Tier 1 for
+// Safari (it doesn't need this API at all: it decodes audio from the file
+// bytes via mediabunny), forcing every Safari export onto the slow legacy
+// MediaRecorder+ffmpeg path. Keeping this check separate lets Safari use
+// Tier 1 like Chromium does.
+function hasLiveAudioTap(): boolean {
+  return typeof MediaStreamTrackProcessor !== 'undefined'
 }
 
 async function videoConfigSupported(width: number, height: number): Promise<boolean> {
@@ -820,6 +837,19 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
   // (WhatsApp/Instagram) instead of relying on a single leading keyframe.
   const keyframeInterval = FPS * 2
 
+  // Stall detection: if the element's decode clock stops advancing for a
+  // while (GC pause, thermal throttle, tab backgrounding) we'd otherwise keep
+  // compositing the same stale frame on every remaining tick, baking a frozen
+  // video segment into the output while the (already-captured, Phase 1)
+  // audio track plays on undisturbed. Poll briefly for the clock to resume
+  // before compositing, bounded per stall episode so a permanently-dead
+  // decode can't compound into repeated waits for the rest of the clip.
+  const STALL_THRESHOLD_MS = 400
+  const STALL_POLL_MS = 40
+  const STALL_HARD_CAP_MS = 5000
+  let stallLastTime = video.currentTime
+  let stallLastAdvanceAt = performance.now()
+
   for (let outIdx = 0; outIdx < totalFrames; outIdx++) {
     // Pace each output frame to the wall clock so the frame the browser is
     // presenting lines up with this frame's position in the clip. If
@@ -834,6 +864,32 @@ async function exportViaWebCodecs(opts: VideoExportOpts): Promise<Blob> {
     // If the segment ended between frames, make sure playback resumes so we
     // never composite a frozen last frame while the loop-seek is pending.
     if (video.paused && !video.seeking) void video.play().catch(() => {})
+
+    // If the element is nominally playing but its clock hasn't moved in a
+    // while, actively wait (rather than immediately compositing a stale
+    // duplicate) — bounded so we can never hang forever.
+    if (video.currentTime !== stallLastTime) {
+      stallLastTime = video.currentTime
+      stallLastAdvanceAt = performance.now()
+    } else if (
+      !video.paused &&
+      !video.seeking &&
+      !video.ended &&
+      performance.now() - stallLastAdvanceAt > STALL_THRESHOLD_MS
+    ) {
+      const waitDeadline = performance.now() + STALL_HARD_CAP_MS
+      while (
+        video.currentTime === stallLastTime &&
+        !video.paused &&
+        !video.seeking &&
+        !video.ended &&
+        performance.now() < waitDeadline
+      ) {
+        await new Promise((r) => setTimeout(r, STALL_POLL_MS))
+      }
+      stallLastTime = video.currentTime
+      stallLastAdvanceAt = performance.now()
+    }
 
     // Composite using linear, continuous song time (the lyric/animation layers
     // advance with the output timeline, independent of the video's own loop).
@@ -1020,21 +1076,21 @@ async function exportViaWebCodecsOffline(opts: VideoExportOpts, file: Blob): Pro
     // ---- Video: fixed 30fps CFR, previous-frame sampling ----
     onStatus?.('Gravando vídeo… 0%')
     const sink = new CanvasSink(videoTrack)
+    // Most recently decoded real frame, held across output slots (and across
+    // loop passes below) until the next real frame arrives. Stays null only
+    // until the very first frame of the whole export has been decoded.
     let lastFrame: CanvasImageSource | null = null
     let outIdx = 0
-    // Loop the segment deterministically: each iteration decodes the segment
-    // from `start` and feeds a strictly-monotonic timestamp list (which lets
-    // mediabunny decode each packet at most once). The output timeline
-    // (outIdx) is continuous across loops, so loop seams line up exactly.
-    while (outIdx < totalFrames) {
-      const framesThisLoop = Math.min(totalFrames - outIdx, Math.max(1, Math.round(clipLen * FPS)))
-      const timestamps = Array.from({ length: framesThisLoop }, (_, i) => start + i * frameDur)
-      for await (const wrapped of sink.canvasesAtTimestamps(timestamps)) {
-        // canvasesAtTimestamps already returns the last frame with PTS ≤ the
-        // requested time; null only before the first frame — hold the last.
-        if (wrapped?.canvas) lastFrame = wrapped.canvas
-        // Continuous, linear song time — identical to the real-time path, so
-        // the lyric/minutes animation is unchanged.
+
+    // Fills output slots [outIdx, totalFrames) on the fixed 30fps CFR grid
+    // with `lastFrame`, until `untilLocal` seconds (relative to this pass's
+    // own start) is reached. Never holds a frame past its own decoded
+    // extent — canvasesAtTimestamps clamping past the end of real content
+    // (and us blindly trusting that) was the cause of the video freezing on
+    // a duplicated last frame while the audio (built separately, correctly)
+    // kept playing.
+    const flushTo = async (passStartIdx: number, untilLocal: number) => {
+      while (outIdx < totalFrames && (outIdx - passStartIdx) * frameDur < untilLocal) {
         composite(lastFrame, start + outIdx * frameDur)
         // The awaited add() respects encoder/writer backpressure.
         await videoSource.add(outIdx * frameDur, frameDur)
@@ -1043,6 +1099,51 @@ async function exportViaWebCodecsOffline(opts: VideoExportOpts, file: Blob): Pro
           onStatus?.(`Gravando vídeo… ${Math.min(100, Math.round((outIdx / totalFrames) * 100))}%`)
         }
       }
+    }
+
+    // Loop the segment deterministically: each pass decodes sequentially from
+    // `start` via canvases() — a true range iterator that, unlike
+    // canvasesAtTimestamps, can never clamp/duplicate past the end of real
+    // content: it simply ends once decodable packets run out, exactly like
+    // encodeOfflineAudio's AudioBufferSink.buffers() above. `clipLen` is only
+    // an upper BOUND derived from the container's *declared* duration, which
+    // can overstate what's actually decodable (edit lists, imprecise muxing,
+    // phone-exported files with an estimated moov duration) — passing it as
+    // `endTimestamp` is harmless even when it overstates real content, since
+    // the generator still stops at the real end regardless.
+    //
+    // If a pass's real content runs out before filling its share of
+    // `totalFrames`, the pass ends there and the outer loop restarts
+    // decoding from `start` for the remaining frames — a short/truncated
+    // clip visibly loops instead of freezing on a baked-in duplicate frame.
+    while (outIdx < totalFrames) {
+      const passStartIdx = outIdx
+      let sawFrame = false
+      let heldLocalEnd = 0
+
+      for await (const wrapped of sink.canvases(start, start + clipLen)) {
+        // Flush whatever was held before this frame arrived (possibly still
+        // null, for output slots before the very first frame of the export)
+        // up to this new frame's own onset, then start holding it.
+        await flushTo(passStartIdx, wrapped.timestamp - start)
+        if (outIdx >= totalFrames) break // enough output frames already; stop decoding
+        sawFrame = true
+        lastFrame = wrapped.canvas
+        heldLocalEnd = wrapped.timestamp - start + (wrapped.duration || frameDur)
+      }
+      if (outIdx >= totalFrames) break // filled the grid mid-pass; nothing left to do
+
+      if (!sawFrame) {
+        // No decodable content at all from `start` this pass (corrupt/empty
+        // track) — flush whatever's held (possibly still null) for the rest
+        // and stop, instead of looping forever.
+        await flushTo(passStartIdx, Infinity)
+        break
+      }
+
+      // Flush the pass's last real frame for its own natural extent only
+      // (never beyond it — see the design note above).
+      await flushTo(passStartIdx, heldLocalEnd)
     }
     videoSource.close()
 
@@ -1176,11 +1277,47 @@ async function exportViaMediaRecorder(
       if (done) return
       done = true
       clearTimeout(watchdog)
+      clearInterval(stallWatchdog)
       video.removeEventListener('ended', onLoopEnded)
       resolve()
     }
     video.addEventListener('ended', onLoopEnded)
     const watchdog = setTimeout(finish, (duration + 1) * 1000)
+
+    // Stall watchdog: if the element's decode stalls (GC pause, thermal
+    // throttle, tab backgrounding), requestVideoFrameCallback simply stops
+    // firing — frame() (and therefore composite()) never gets called again
+    // until a new frame is presented, but canvas.captureStream() keeps
+    // sampling the (now-static) canvas at its own cadence regardless, baking
+    // a frozen segment into the recording while the separately-captured
+    // audio track (grab().getAudioTracks(), unaffected by video decode) keeps
+    // playing. Runs independently of frame()'s own schedule since frame()
+    // itself can be the thing that has stopped being invoked; recovering the
+    // element resumes rvfc callbacks (or, for the rAF fallback, frame() was
+    // already running and simply starts seeing currentTime move again).
+    const STALL_THRESHOLD_MS = 400
+    const STALL_HARD_CAP_MS = 5000
+    let stallLastTime = video.currentTime
+    let stallLastAdvanceAt = performance.now()
+    let stallEpisodeStartedAt: number | null = null
+    const stallWatchdog = setInterval(() => {
+      if (done) return
+      if (video.currentTime !== stallLastTime) {
+        stallLastTime = video.currentTime
+        stallLastAdvanceAt = performance.now()
+        stallEpisodeStartedAt = null
+        return
+      }
+      if (video.paused || video.seeking || video.ended) return // expected states, not a stall
+      const now = performance.now()
+      if (now - stallLastAdvanceAt <= STALL_THRESHOLD_MS) return
+      if (stallEpisodeStartedAt == null) stallEpisodeStartedAt = now
+      if (now - stallEpisodeStartedAt > STALL_HARD_CAP_MS) return // gave up on this episode
+      // Nudge playback — some engines need a fresh play() call to recover
+      // from a stalled decode instead of resuming on their own.
+      void video.play().catch(() => {})
+    }, 50)
+
     const schedule = () => {
       if (rvfc) rvfc(frame)
       else requestAnimationFrame(frame)
@@ -1228,6 +1365,14 @@ async function exportViaMediaRecorder(
       '-map',
       hasAudio ? '0:a:0' : '1:a:0',
       ...(hasAudio ? [] : ['-shortest']),
+      // Force the output to exactly the requested clip length regardless of
+      // what MediaRecorder's (often-unreliable) container metadata says, and
+      // pad short audio with silence — guarantees the audio and video tracks
+      // always end up the same length instead of drifting apart.
+      '-t',
+      String(duration),
+      '-af',
+      'apad',
       '-r',
       String(FPS),
       '-fps_mode',
@@ -1240,8 +1385,11 @@ async function exportViaMediaRecorder(
       '4.0',
       '-pix_fmt',
       'yuv420p',
+      // 'ultrafast' trades a bit of bitrate efficiency for a much faster
+      // single-threaded encode — this WASM build has no multi-thread support
+      // (no COOP/COEP headers), so encode speed is pure CPU-bound wall time.
       '-preset',
-      'veryfast',
+      'ultrafast',
       '-crf',
       '23',
       '-movflags',
@@ -1273,10 +1421,12 @@ async function exportViaMediaRecorder(
 export async function exportCardVideo(
   opts: VideoExportOpts,
 ): Promise<{ blob: Blob; ext: 'mp4' | 'webm' }> {
-  if (hasWebCodecs() && (await videoConfigSupported(opts.canvasW, opts.canvasH))) {
+  const codecOk = hasWebCodecsCore() && (await videoConfigSupported(opts.canvasW, opts.canvasH))
+  if (codecOk) {
     // Tier 1: deterministic offline path. Needs the encoded file bytes to
     // demux; degrades to the real-time path if the input can't be demuxed or
-    // its codec can't be decoded (e.g. HEVC on an unsupported GPU).
+    // its codec can't be decoded (e.g. HEVC on an unsupported GPU). Doesn't
+    // need a live audio tap, so this runs on Safari too.
     if (opts.file) {
       try {
         const blob = await exportViaWebCodecsOffline(opts, opts.file)
@@ -1285,13 +1435,16 @@ export async function exportCardVideo(
         console.error('WebCodecs offline falhou, tentando tempo real:', err)
       }
     }
-    // Tier 2: real-time WebCodecs. Can also fail mid-encode on some drivers.
-    try {
-      const blob = await exportViaWebCodecs(opts)
-      return { blob, ext: 'mp4' }
-    } catch (err) {
-      // Fall back to the battle-tested MediaRecorder path rather than failing.
-      console.error('WebCodecs falhou, usando MediaRecorder:', err)
+    // Tier 2: real-time WebCodecs. Needs the live audio tap (Chromium only).
+    // Can also fail mid-encode on some drivers.
+    if (hasLiveAudioTap()) {
+      try {
+        const blob = await exportViaWebCodecs(opts)
+        return { blob, ext: 'mp4' }
+      } catch (err) {
+        // Fall back to the battle-tested MediaRecorder path rather than failing.
+        console.error('WebCodecs falhou, usando MediaRecorder:', err)
+      }
     }
   }
   // Tier 3: MediaRecorder + ffmpeg.wasm.

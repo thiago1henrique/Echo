@@ -41,7 +41,7 @@ const MODE_COPY: Record<AppMode, string> = {
   recommend: 'Baseado no seu gosto, uma sugestão de álbum novo por período do dia.',
 }
 
-const MAX_CLIP = 60
+const MAX_CLIP = 30
 const MIN_CLIP = 1
 
 // Above this width the video preview mock lives in the desktop side-margin (a
@@ -1325,7 +1325,17 @@ export default function App() {
             autoComplete="off"
           />
           {searching && lyricHits.length === 0 && (
-            <div className="lyric-hits lyric-hits--status">Buscando…</div>
+            <ul className="lyric-hits" aria-hidden>
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="lyric-hit lyric-hit--skeleton">
+                  <span className="lyric-hit__cover skeleton-block" />
+                  <span className="lyric-hit__meta">
+                    <span className="skeleton-block skeleton-line skeleton-line--hit-title" />
+                    <span className="skeleton-block skeleton-line skeleton-line--hit-sub" />
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
           {lyricHits.length > 0 && (
             <ul className="lyric-hits" role="listbox">
@@ -1440,14 +1450,35 @@ export default function App() {
       {appMode === 'recommend' && recError && <p className="error">{recError}</p>}
 
       {appMode === 'recommend' && recLoading && (
-        <p className="quote-editor__hint">Farejando o seu gosto…</p>
+        <section className="panel recommend-panel">
+          <div className="panel__head">
+            <span className="eyebrow">Baseado no seu gosto</span>
+            <h2 className="panel__title">Recomendamos</h2>
+          </div>
+          <div className="recommend-card">
+            <div className="recommend-card__row">
+              <span className="recommend-card__cover skeleton-block" aria-hidden />
+              <div className="recommend-card__meta">
+                <span className="skeleton-block skeleton-line skeleton-line--album" />
+                <span className="skeleton-block skeleton-line skeleton-line--artist" />
+                <span className="skeleton-block skeleton-line skeleton-line--year" />
+                <span className="skeleton-block skeleton-line skeleton-line--genre" />
+              </div>
+            </div>
+            <div className="recommend-card__desc-skeleton">
+              <span className="skeleton-block skeleton-line" />
+              <span className="skeleton-block skeleton-line" />
+              <span className="skeleton-block skeleton-line skeleton-line--short" />
+            </div>
+          </div>
+        </section>
       )}
 
       {appMode === 'recommend' && recommendation && !recLoading && (
         <section className="panel recommend-panel">
           <div className="panel__head">
             <span className="eyebrow">Baseado no seu gosto</span>
-            <h2 className="panel__title">Recomendamos: {recommendation.album}</h2>
+            <h2 className="panel__title">Recomendamos</h2>
           </div>
           <div className="recommend-card">
             <div className="recommend-card__row">
@@ -1461,6 +1492,7 @@ export default function App() {
                 <span className="recommend-card__cover recommend-card__cover--empty" aria-hidden />
               )}
               <div className="recommend-card__meta">
+                <span className="recommend-card__album">{recommendation.album}</span>
                 <span className="recommend-card__artist">{recommendation.artist}</span>
                 {recommendation.year && (
                   <span className="recommend-card__year">{recommendation.year}</span>
@@ -1503,6 +1535,29 @@ export default function App() {
       {error && <p className="error">{error}</p>}
       {generated && !recap && !loading && !error && (
         <p className="quote-editor__hint">Sem dados para este período.</p>
+      )}
+
+      {appMode === 'recap' && loading && !generated && (
+        <div className="preview">
+          <div className={`preview__frame preview__frame--${previewFmt}`}>
+            <div className={`card-skeleton card-skeleton--${previewFmt}`} aria-hidden>
+              <span className="card-skeleton__hero skeleton-block" />
+              <div className="card-skeleton__body">
+                {[0, 1].map((list) => (
+                  <div key={list} className="card-skeleton__list">
+                    <span className="skeleton-block skeleton-line skeleton-line--list-title" />
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="card-skeleton__item">
+                        <span className="card-skeleton__thumb skeleton-block" />
+                        <span className="skeleton-block skeleton-line skeleton-line--item" />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {showCard && (
@@ -1779,8 +1834,8 @@ export default function App() {
             </div>
             <p className="panel__hint">
               Suba um clipe da música mais ouvida. Ele vira o fundo do topo e o botão
-              "Baixar recap" passa a gerar um MP4 de 15s — use os botões abaixo para
-              exportar em 30s ou 1 min (máx. {MAX_CLIP}s).
+              "Baixar recap" passa a gerar um MP4 de 15s — use o botão abaixo para
+              exportar em 30s, ou ajuste o trecho manualmente (máx. {MAX_CLIP}s).
             </p>
             {IS_FIREFOX && (
               <p className="panel__note">
@@ -1869,19 +1924,6 @@ export default function App() {
                     >
                       30 segundos
                     </button>
-                    <button
-                      className="btn"
-                      disabled={!!exporting}
-                      onClick={() => {
-                        const d = Math.min(60, videoDur || 60)
-                        setClipLen(d)
-                        const maxS = Math.max(0, videoDur - d)
-                        setClipStart(prev => Math.min(prev, maxS))
-                        handleVideoExport(previewFmt, d)
-                      }}
-                    >
-                      1 minuto
-                    </button>
                   </div>
                 </div>
                 <button
@@ -1967,7 +2009,19 @@ export default function App() {
               </label>
             )}
 
-            {lyricsLoading && <p className="quote-editor__hint">Buscando letra…</p>}
+            {lyricsLoading && (
+              <div className="encarte__field">
+                <span className="field__label">Letra</span>
+                <div className="lyric-lines" aria-hidden>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="lyric-line lyric-line--skeleton">
+                      <span className="lyric-line__num skeleton-block" />
+                      <span className="skeleton-block skeleton-line skeleton-line--lyric" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {lyricsError && <p className="error">{lyricsError}</p>}
             {!lyricsLoading && !lyricsError && lyricLines.length === 0 && (
               <p className="quote-editor__hint">
@@ -2038,6 +2092,38 @@ export default function App() {
           </div>
           )}
         </>
+      )}
+
+      {appMode === 'collage' && collageLoading && !collageGenerated && (
+        <div className="preview">
+          <div className={`preview__frame preview__frame--collage-${collageFmt}`}>
+            <div className={`collage-skeleton collage-skeleton--${collageFmt}`} aria-hidden>
+              {collageFmt === 'story' && (
+                <div className="collage-skeleton__head">
+                  <span className="skeleton-block skeleton-line skeleton-line--eyebrow" />
+                  <span className="skeleton-block skeleton-line skeleton-line--handle" />
+                </div>
+              )}
+              <div
+                className="collage-skeleton__grid"
+                style={{
+                  gridTemplateColumns: `repeat(${collageSize}, 1fr)`,
+                  gridTemplateRows: `repeat(${collageSize}, 1fr)`,
+                }}
+              >
+                {Array.from({ length: collageSize * collageSize }).map((_, i) => (
+                  <span key={i} className="collage-skeleton__cell skeleton-block" />
+                ))}
+              </div>
+              {collageFmt === 'story' && (
+                <div className="collage-skeleton__foot">
+                  <span className="skeleton-block skeleton-line skeleton-line--brand" />
+                  <span className="skeleton-block skeleton-line skeleton-line--meta" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Collage: preview + options + export. Its own block since the collage has

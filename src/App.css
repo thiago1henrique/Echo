@@ -1554,10 +1554,14 @@
   gap: 4px;
   min-width: 0;
 }
-.recommend-card__artist {
+.recommend-card__album {
   font-weight: 600;
   font-size: 16px;
   color: var(--text-h);
+}
+.recommend-card__artist {
+  font-size: 13px;
+  color: var(--text);
 }
 .recommend-card__year {
   font-family: var(--mono);
@@ -1607,6 +1611,211 @@
 .recommend-panel__foot strong {
   color: var(--accent);
   font-weight: 700;
+}
+
+/* ---- Loading skeletons (shared by every fetch-backed panel) ---- */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+.skeleton-block {
+  background: var(--border);
+  border-radius: 6px;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+.recommend-card__cover.skeleton-block {
+  box-shadow: none;
+}
+.skeleton-line {
+  display: block;
+  width: 100%;
+  height: 14px;
+}
+.skeleton-line--album {
+  width: 65%;
+  height: 16px;
+}
+.skeleton-line--artist {
+  width: 45%;
+}
+.skeleton-line--year,
+.skeleton-line--genre {
+  width: 28%;
+  height: 11px;
+}
+.recommend-card__desc-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.recommend-card__desc-skeleton .skeleton-line--short {
+  width: 60%;
+}
+
+/* Song search dropdown + lyric-line picker, both loading in place of the
+   real list once results come back. */
+.lyric-hit--skeleton {
+  cursor: default;
+}
+.lyric-hit--skeleton:hover {
+  background: transparent;
+}
+.skeleton-line--hit-title {
+  width: 70%;
+  height: 13px;
+}
+.skeleton-line--hit-sub {
+  width: 45%;
+  height: 11px;
+}
+.lyric-line--skeleton {
+  display: grid;
+  grid-template-columns: 2.6em 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 12px 9px 6px;
+}
+.lyric-line--skeleton .lyric-line__num {
+  justify-self: end;
+  width: 18px;
+  height: 12px;
+}
+.skeleton-line--lyric {
+  height: 13px;
+}
+.lyric-line--skeleton:nth-child(3n+2) .skeleton-line--lyric {
+  width: 70%;
+}
+.lyric-line--skeleton:nth-child(3n+3) .skeleton-line--lyric {
+  width: 85%;
+}
+
+/* Collage mosaic — mirrors CollageCard's grid/head/foot so the swap from
+   skeleton to real covers doesn't jump. */
+.collage-skeleton {
+  width: 100%;
+}
+.collage-skeleton--square {
+  aspect-ratio: 1 / 1;
+}
+.collage-skeleton--story {
+  aspect-ratio: 1080 / 1920;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 7% 6% 5%;
+  background: linear-gradient(165deg, var(--surface), var(--bg));
+}
+.collage-skeleton__head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.collage-skeleton__grid {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+}
+.collage-skeleton--square .collage-skeleton__grid {
+  height: 100%;
+}
+.collage-skeleton--story .collage-skeleton__grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.collage-skeleton__cell {
+  border-radius: 0;
+}
+.collage-skeleton__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.skeleton-line--eyebrow {
+  width: 40%;
+  height: 10px;
+}
+.skeleton-line--handle {
+  width: 55%;
+  height: 20px;
+}
+.skeleton-line--brand {
+  width: 25%;
+  height: 14px;
+}
+.skeleton-line--meta {
+  width: 20%;
+  height: 10px;
+}
+
+/* Recap/lyric share card — hero block + two ranked lists, matching RecapCard's
+   story (stacked) and feed (side-by-side) layouts. */
+.card-skeleton {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  background: var(--surface);
+}
+.card-skeleton--story {
+  aspect-ratio: 1080 / 1920;
+  flex-direction: column;
+}
+.card-skeleton--feed {
+  aspect-ratio: 1600 / 900;
+  flex-direction: row;
+}
+.card-skeleton__hero {
+  flex-shrink: 0;
+  border-radius: 0;
+}
+.card-skeleton--story .card-skeleton__hero {
+  height: 42%;
+}
+.card-skeleton--feed .card-skeleton__hero {
+  width: 42%;
+  height: 100%;
+}
+.card-skeleton__body {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 20px;
+  padding: 16px;
+  min-height: 0;
+  min-width: 0;
+}
+.card-skeleton--story .card-skeleton__body {
+  flex-direction: column;
+}
+.card-skeleton__list {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.card-skeleton__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-skeleton__thumb {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+}
+.skeleton-line--list-title {
+  width: 50%;
+  height: 11px;
+}
+.skeleton-line--item {
+  width: 78%;
+  height: 11px;
+}
+.card-skeleton__item:nth-child(even) .skeleton-line--item {
+  width: 58%;
 }
 
 /* ---- runout-groove footer ---- */
