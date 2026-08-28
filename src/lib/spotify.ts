@@ -229,7 +229,10 @@ async function api<T>(path: string): Promise<T> {
     // App em Development Mode: o Spotify só libera a API para a conta dona e as
     // contas adicionadas na allowlist (User Management). Qualquer outra recebe 403.
     throw new SpotifyError(
-      'Este app do Spotify ainda está em modo de desenvolvimento e só libera contas autorizadas. Peça acesso ao responsável ou tente novamente mais tarde.',
+      'Este app do Spotify está em modo de desenvolvimento: só a conta dona e até 25 contas ' +
+        'autorizadas conseguem entrar. Peça para o responsável te adicionar em ' +
+        'developer.spotify.com/dashboard → o app → User Management → Add new user, usando o ' +
+        'e-mail da sua conta Spotify.',
     )
   }
   if (!res.ok) throw new SpotifyError(`Spotify respondeu ${res.status}.`)

@@ -12,6 +12,7 @@ interface DeezerArtist {
   picture_xl?: string
   picture_big?: string
   picture_medium?: string
+  nb_fan?: number
 }
 interface DeezerArtistSearch {
   data?: DeezerArtist[]
@@ -64,11 +65,15 @@ const DEEZER_EMPTY = 'd41d8cd98f00b204e9800998ecf8427e'
 /**
  * Returns an artist photo URL from Deezer, or undefined if not found.
  *
- * Deezer's search ranks by popularity, not name match — for famous names that
- * also match an obscure act's tags (e.g. "David Bowie", "The Cure") the first
- * hit can be that obscure artist with no photo, while the real artist sits
- * lower in the results. Fetch a few candidates and prefer an exact (case
- * insensitive) name match over blindly trusting data[0].
+ * Deezer's search ranks by relevance, not fame or name match — for famous
+ * names that also match an obscure act's tags (e.g. "David Bowie", "The
+ * Cure") the first hit can be that obscure artist, while the real artist sits
+ * lower in the results. Worse, two *different* artists can share the exact
+ * same name (there's a Deezer artist literally named "Michael Jackson" with
+ * 153 fans, sitting above the real one's 13M, whose "photo" is just a random
+ * single's cover art) — a plain "first exact match wins" pick is not enough.
+ * Fetch a few candidates, keep only exact (case-insensitive) name matches,
+ * and among those prefer the most-followed one that actually has a photo.
  */
 async function fetchDeezerArtistImage(name: string): Promise<string | undefined> {
   try {
@@ -81,8 +86,11 @@ async function fetchDeezerArtistImage(name: string): Promise<string | undefined>
       const pic = a.picture_xl || a.picture_big || a.picture_medium
       return pic && !pic.includes(DEEZER_EMPTY) ? pic : undefined
     }
-    const exact = candidates.find((a) => a.name?.toLowerCase() === name.toLowerCase())
-    return (exact && pictureOf(exact)) ?? candidates.map(pictureOf).find(Boolean)
+    const exactMatches = candidates
+      .filter((a) => a.name?.toLowerCase() === name.toLowerCase())
+      .sort((a, b) => (b.nb_fan ?? 0) - (a.nb_fan ?? 0))
+    const bestExact = exactMatches.find((a) => pictureOf(a))
+    return (bestExact && pictureOf(bestExact)) ?? candidates.map(pictureOf).find(Boolean)
   } catch (err) {
     console.error("fetchDeezerArtistImage failed for:", name, err)
     return undefined
@@ -239,7 +247,7 @@ export function proxied(url: string | undefined, size?: number): string | undefi
   const hasNativeCors =
     url.includes('scdn.co') ||
     url.includes('spotifycdn.com') ||
-    url.includes('lastfm.freetls.fastly.net') ||
+    url.includes('lastfm-img.freetls.fastly.net') ||
     url.includes('fastly.net')
 
   if (hasNativeCors) {

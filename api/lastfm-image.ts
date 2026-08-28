@@ -74,9 +74,33 @@ export default async function handler(req: Req, res: Res) {
       html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
     const image = match?.[1]
+
+    // Under load (or rate-limiting), Last.fm can 200 an unrelated page — a bot
+    // interstitial, a trending/editorial page — whose og:image has nothing to do
+    // with the artist we asked for. Guard against baking that in by checking the
+    // page's own og:title actually names the artist before trusting its image.
+    const titleMatch =
+      html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i)
+    const title = titleMatch?.[1] ?? ''
+    // Last.fm HTML-escapes (and sometimes double-escapes) '&' in og:title, e.g.
+    // "Earth, Wind &amp;amp; Fire" — decode before comparing or any artist with
+    // an ampersand in their name would always fail the match below.
+    const unescapeHtml = (s: string) =>
+      s
+        .replace(/&amp;/gi, '&')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/g, "'")
+    const DIACRITICS = new RegExp('[̀-ͯ]', 'g')
+    const normalize = (s: string) => unescapeHtml(s).toLowerCase().normalize('NFD').replace(DIACRITICS, '')
+    const titleMatchesArtist = normalize(title).includes(normalize(artist))
+
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
 
-    if (!image || image.includes(PLACEHOLDER)) {
+    if (!image || image.includes(PLACEHOLDER) || !titleMatchesArtist) {
       // Short cache for misses: a transient scrape failure shouldn't lock an
       // artist out of their real photo for a full day.
       res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600')
