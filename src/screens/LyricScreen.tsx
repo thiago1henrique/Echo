@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { EchoLoadingText } from '../components/Home'
 import { LyricCard } from '../components/LyricCard'
 import type { CardStyle } from '../components/LyricCard'
-import { ModelPicker, ModelThumb, Offscreen, PrimaryButton, ScaledPreview, SecondaryButton, Segmented, TextField, ErrorText, HintText, useToast } from '../components/ui'
+import { ModelPicker, ModelThumb, MonoLabel, Offscreen, PrimaryButton, ScaledPreview, SecondaryButton, Segmented, ErrorText, HintText, useToast } from '../components/ui'
 import type { ModelItem } from '../components/ui'
 import { nodeToPngBlob } from '../lib/exportPng'
 import { proxied, searchTracks, toDataUrl } from '../lib/images'
@@ -62,6 +62,7 @@ export function LyricScreen(props: { ctx: ScreenCtx }) {
   const [cover, setCover] = useState<{ src: string; url: string | undefined } | null>(null)
 
   const trackBlockRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
   const captureRef = useRef<HTMLDivElement>(null)
   const requestRef = useRef(0)
 
@@ -199,90 +200,221 @@ export function LyricScreen(props: { ctx: ScreenCtx }) {
     ) : null,
   }))
 
+  // Order of the picked lines (1–4) → badge shown on each picked line.
+  const pickOrder = useMemo(() => new Map([...picked].sort((a, b) => a - b).map((idx, n) => [idx, n + 1])), [picked])
+  const full = picked.size >= MAX_SELECTED_LINES
+
+  function changeTrack() {
+    requestRef.current++
+    setSelected(null)
+    setLyrics({ status: 'idle' })
+    setPicked(new Set())
+  }
+
+  const showResults = !selected && (searching || results !== null)
+
   return (
     <div className="lyric-screen">
-      <TextField
-        value={query}
-        onChange={setQuery}
-        placeholder="Artista ou música"
-        onEnter={search}
-        enterKeyHint="search"
-        autoComplete="off"
-      />
-      <PrimaryButton loading={searching} disabled={!query.trim()} onClick={search}>
-        Buscar
-      </PrimaryButton>
-      {searchError && <ErrorText>Não foi possível buscar músicas. Tente novamente.</ErrorText>}
+      {/* 1 · Busca ------------------------------------------------------- */}
+      {!selected && (
+        <form
+          className="lyric-screen__search"
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault()
+            search()
+          }}
+        >
+          <svg className="lyric-screen__search-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m16 16 4.5 4.5" />
+          </svg>
+          <input
+            className="lyric-screen__input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Artista ou música"
+            aria-label="Artista ou música"
+            enterKeyHint="search"
+            autoComplete="off"
+            autoFocus
+          />
+          {query && (
+            <button
+              type="button"
+              className="lyric-screen__clear"
+              aria-label="Limpar busca"
+              onClick={() => {
+                setQuery('')
+                setResults(null)
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m7 7 10 10M17 7 7 17" />
+              </svg>
+            </button>
+          )}
+          <button type="submit" className="lyric-screen__go" disabled={!query.trim() || searching}>
+            {searching ? <span className="ui-spinner" aria-label="Buscando" /> : 'Buscar'}
+          </button>
+        </form>
+      )}
+      {!selected && searchError && <ErrorText>Não foi possível buscar músicas. Tente novamente.</ErrorText>}
 
-      <Segmented items={FORMAT_ITEMS} value={format} onChange={setFormat} ariaLabel="Formato do card" />
-
-      {results && results.length > 0 && !selected && (
-        <ul className="lyric-screen__results">
-          {results.map((hit) => (
-            <li key={hit.id}>
-              <button type="button" className="lyric-screen__hit" onClick={() => selectTrack(hit)}>
-                {hit.cover ? (
-                  <img
-                    className="lyric-screen__hit-cover"
-                    src={hit.cover}
-                    alt=""
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <span className="lyric-screen__hit-cover" aria-hidden="true" />
-                )}
-                <span className="lyric-screen__hit-text">
-                  <span className="lyric-screen__hit-title">{hit.title}</span>
-                  <span className="lyric-screen__hit-artist">{hit.artist}</span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+      {!selected && !showResults && (
+        <div className="lyric-screen__empty">
+          <span className="lyric-screen__empty-mark" aria-hidden="true">“</span>
+          <p className="lyric-screen__empty-title">Transforme um verso em card</p>
+          <p className="lyric-screen__empty-text">
+            Busque uma música, escolha até 4 versos e compartilhe no story ou no feed.
+          </p>
+        </div>
       )}
 
-      {selected && (
-        <div className="lyric-screen__track" ref={trackBlockRef}>
-          <p className="lyric-screen__track-title">
-            {selected.title} · {selected.artist}
-          </p>
-          {lyrics.status === 'loading' && (
-            <div className="lyric-screen__pad">
-              <EchoLoadingText />
-            </div>
+      {!selected && showResults && (
+        <section className="lyric-screen__results-wrap" aria-label="Resultados da busca" aria-busy={searching}>
+          {searching && (
+            <ul className="lyric-screen__results" aria-hidden="true">
+              {[0, 1, 2, 3, 4].map((n) => (
+                <li key={n} className="lyric-screen__hit lyric-screen__hit--skeleton">
+                  <span className="lyric-screen__hit-cover" />
+                  <span className="lyric-screen__hit-text">
+                    <span className="lyric-screen__sk lyric-screen__sk--title" />
+                    <span className="lyric-screen__sk lyric-screen__sk--artist" />
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
-          {lyrics.status === 'error' && (
-            <div className="lyric-screen__pad lyric-screen__pad--error">
-              <ErrorText>{lyrics.message}</ErrorText>
-            </div>
+          {!searching && results && results.length === 0 && (
+            <p className="lyric-screen__none">
+              Nenhuma música encontrada para “{query.trim()}”. Tente o nome do artista junto com o da música.
+            </p>
           )}
-          {lines && (
+          {!searching && results && results.length > 0 && (
             <>
-              <div className="lyric-screen__tip">
-                <HintText>Toque em até 4 versos para destacá-los:</HintText>
-              </div>
-              <ul className="lyric-screen__lines" aria-label="Versos da letra">
-                {lines.map((line, i) => (
-                  <li key={i}>
-                    <button
-                      type="button"
-                      className={`lyric-screen__line${picked.has(i) ? ' is-picked' : ''}`}
-                      aria-pressed={picked.has(i)}
-                      onClick={() => toggleLine(i)}
-                    >
-                      {line}
+              <MonoLabel>{results.length} resultados</MonoLabel>
+              <ul className="lyric-screen__results">
+                {results.map((hit) => (
+                  <li key={hit.id}>
+                    <button type="button" className="lyric-screen__hit" onClick={() => selectTrack(hit)}>
+                      {hit.cover ? (
+                        <img
+                          className="lyric-screen__hit-cover"
+                          src={hit.cover}
+                          alt=""
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <span className="lyric-screen__hit-cover" aria-hidden="true" />
+                      )}
+                      <span className="lyric-screen__hit-text">
+                        <span className="lyric-screen__hit-title">{hit.title}</span>
+                        <span className="lyric-screen__hit-artist">{hit.artist}</span>
+                      </span>
+                      <svg className="lyric-screen__chev" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m9 6 6 6-6 6" />
+                      </svg>
                     </button>
                   </li>
                 ))}
               </ul>
             </>
           )}
+        </section>
+      )}
+
+      {/* 2 · Versos ------------------------------------------------------ */}
+      {selected && (
+        <div className="lyric-screen__track" ref={trackBlockRef}>
+          <div className="lyric-screen__now">
+            {selected.cover ? (
+              <img className="lyric-screen__now-cover" src={selected.cover} alt="" referrerPolicy="no-referrer" />
+            ) : (
+              <span className="lyric-screen__now-cover" aria-hidden="true" />
+            )}
+            <span className="lyric-screen__hit-text">
+              <span className="lyric-screen__now-title">{selected.title}</span>
+              <span className="lyric-screen__hit-artist">{selected.artist}</span>
+            </span>
+            <button type="button" className="lyric-screen__change" onClick={changeTrack}>
+              Trocar
+            </button>
+          </div>
+
+          {lyrics.status === 'loading' && (
+            <div className="lyric-screen__pad">
+              <EchoLoadingText />
+            </div>
+          )}
+          {lyrics.status === 'error' && (
+            <div className="lyric-screen__pad">
+              <ErrorText>{lyrics.message}</ErrorText>
+              <button type="button" className="lyric-screen__change lyric-screen__change--solo" onClick={changeTrack}>
+                Escolher outra música
+              </button>
+            </div>
+          )}
+          {lines && (
+            <>
+              <div className="lyric-screen__counter" aria-live="polite">
+                <HintText>Toque nos versos que quer destacar.</HintText>
+                <span className="lyric-screen__dots" aria-label={`${picked.size} de ${MAX_SELECTED_LINES} versos`}>
+                  {Array.from({ length: MAX_SELECTED_LINES }, (_, n) => (
+                    <i key={n} className={n < picked.size ? 'is-on' : ''} />
+                  ))}
+                </span>
+              </div>
+              <div className="lyric-screen__reader">
+                <ul className="lyric-screen__lines" aria-label="Versos da letra">
+                  {lines.map((line, i) => {
+                    const on = picked.has(i)
+                    return (
+                      <li key={i}>
+                        <button
+                          type="button"
+                          className={`lyric-screen__line${on ? ' is-picked' : ''}${!on && full ? ' is-locked' : ''}`}
+                          aria-pressed={on}
+                          onClick={() => toggleLine(i)}
+                        >
+                          <span className="lyric-screen__order" aria-hidden="true">
+                            {pickOrder.get(i)}
+                          </span>
+                          <span>{line}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+              {picked.size > 0 && (
+                <div className="lyric-screen__pickbar">
+                  <button type="button" className="lyric-screen__change" onClick={() => setPicked(new Set())}>
+                    Limpar
+                  </button>
+                  <button
+                    type="button"
+                    className="lyric-screen__see"
+                    onClick={() => cardRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
+                  >
+                    Ver card ↓
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
+      {/* 3 · Card -------------------------------------------------------- */}
       {hasVerse && (
-        <div className="lyric-screen__style">
+        <div className="lyric-screen__style" ref={cardRef}>
+          <MonoLabel>Seu card</MonoLabel>
+          <Segmented items={FORMAT_ITEMS} value={format} onChange={setFormat} ariaLabel="Formato do card" />
+          <ScaledPreview width={w} height={h}>
+            {renderCard()}
+          </ScaledPreview>
           <ModelPicker
             title="Estilo do card"
             items={styleItems}
@@ -290,9 +422,6 @@ export function LyricScreen(props: { ctx: ScreenCtx }) {
             onChange={setStyle}
             thumbHeight={format === 'story' ? 128 : 84}
           />
-          <ScaledPreview width={w} height={h}>
-            {renderCard()}
-          </ScaledPreview>
           <Offscreen>{renderCard(captureRef)}</Offscreen>
           <div className="lyric-screen__actions">
             <SecondaryButton disabled={exporting || !coverReady} onClick={() => exportCard(false)}>
