@@ -1203,3 +1203,32 @@ html {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
+
+/* Spotify tab while the login is not available yet */
+.spotify-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 24px 20px;
+  border-radius: 28px;
+  background: var(--bento-bg);
+  border: 1px solid var(--border);
+}
+.spotify-soon .ui-hint {
+  color: var(--bento-mute);
+}
+.spotify-soon .spotify-connect__title {
+  color: var(--bento-ink);
+}
+.spotify-soon__badge {
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--on-accent);
+  background: var(--accent);
+}

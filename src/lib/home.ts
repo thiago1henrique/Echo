@@ -92,3 +92,10 @@ export function markSplashSeen(): void {
     /* storage unavailable — the splash just replays next load */
   }
 }
+
+/**
+ * Spotify login is off until the app is out of Development Mode (Extended Quota).
+ * While false the Spotify tab shows "Em breve"; all Spotify code stays in place,
+ * flip this to true to bring the connect flow and the Spotify Início back.
+ */
+export const SPOTIFY_ENABLED = false

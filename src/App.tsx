@@ -13,7 +13,7 @@ import {
 import type { AlbumRecommendation } from './lib/recommend'
 import * as spotify from './lib/spotify'
 import type { SpotifyAuth, SpotifyData, SpotifyRange } from './lib/spotify'
-import { PERIOD_OPTIONS, ROUTE_TITLE, shouldShowSplash } from './lib/home'
+import { PERIOD_OPTIONS, ROUTE_TITLE, SPOTIFY_ENABLED, shouldShowSplash } from './lib/home'
 import type { HomeData, PeriodOption, Route } from './lib/home'
 import { lastfmHomeModel, spotifyHomeModel } from './lib/homeModel'
 import type { ScreenCtx } from './lib/screenCtx'
@@ -129,7 +129,7 @@ export default function App() {
 
   // Complete a Spotify OAuth redirect if we just came back from one.
   useEffect(() => {
-    if (!cameBackFromSpotify()) return
+    if (!SPOTIFY_ENABLED || !cameBackFromSpotify()) return
     spotify.completeRedirect().then((r) => r && setAuth(r)).catch(() => {})
   }, [])
 
@@ -216,7 +216,7 @@ export default function App() {
 
   // ---- Spotify data --------------------------------------------------------
   useEffect(() => {
-    if (source !== 'spotify' || auth.status !== 'connected') {
+    if (!SPOTIFY_ENABLED || source !== 'spotify' || auth.status !== 'connected') {
       const h = setTimeout(() => {
         setSpData(null)
         setSpError(null)
@@ -453,7 +453,7 @@ export default function App() {
       <ToastProvider>
         <div className="app app--home" data-source={source}>
           {isSpotify && !spotifyConnected ? (
-            <SpotifyConnect auth={auth} onConnect={connectSpotify} />
+            <SpotifyConnect auth={auth} onConnect={connectSpotify} comingSoon={!SPOTIFY_ENABLED} />
           ) : (
             <Home
               key={source}

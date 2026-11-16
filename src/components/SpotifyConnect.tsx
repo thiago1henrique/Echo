@@ -12,9 +12,12 @@ import { ErrorText, PrimaryButton, TextField } from './ui'
 export function SpotifyConnect({
   auth,
   onConnect,
+  comingSoon = false,
 }: {
   auth: SpotifyAuth
   onConnect: () => void
+  /** Spotify login is not available yet: show "Em breve" instead of the connect flow. */
+  comingSoon?: boolean
 }) {
   const [clientId, setClientId] = useState(spotify.getClientId())
   const needsId = !spotify.hasClientId()
@@ -32,11 +35,23 @@ export function SpotifyConnect({
           <EchoMark className="compact-head__mark" size={28} animate />
           <span className="compact-head__word echo-wordmark">echo</span>
         </div>
-        <p className="compact-head__sub">Conecte sua conta do Spotify e veja o que você mais ouve.</p>
+        <p className="compact-head__sub">
+          {comingSoon
+            ? 'O recap do que você mais ouve no Spotify chega em breve.'
+            : 'Conecte sua conta do Spotify e veja o que você mais ouve.'}
+        </p>
         <hr className="compact-head__rule" />
       </header>
 
-      {auth.status === 'checking' ? (
+      {comingSoon ? (
+        <div className="spotify-soon stagger" style={{ ['--i' as string]: 1 }}>
+          <span className="spotify-soon__badge">Em breve</span>
+          <h2 className="spotify-connect__title">Spotify</h2>
+          <p className="ui-hint">
+            Estamos finalizando a conexão com o Spotify. Enquanto isso, use o Last.fm para gerar o seu recap.
+          </p>
+        </div>
+      ) : auth.status === 'checking' ? (
         <p className="ui-hint">Carregando…</p>
       ) : (
         <>
