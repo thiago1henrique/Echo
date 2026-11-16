@@ -1,0 +1,109 @@
+/* Video screen. The card is rendered at export pixels inside ScaledPreview; the
+   live clip sits BEHIND a transparent-hero RecapCard (same layering as the export). */
+
+.video-screen,
+.video-screen__group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Card stage: the card gradient shows through the overlay card's transparent
+   body/hero, exactly like the canvas background does on export. */
+.video-screen__card {
+  position: relative;
+  width: max-content;
+  background: linear-gradient(160deg, #1f1712, #131010);
+}
+.video-screen__layer {
+  position: relative;
+  z-index: 1;
+}
+
+/* The recap story hero is 760px here (Android STORY_HERO_HEIGHT_PX) and the
+   export hero rect uses the same number; keep the card CSS in lock-step. */
+.video-screen__card .card--story:not(.card--lyric) .card__hero {
+  height: 760px;
+}
+.video-screen__card .card--story:not(.card--lyric) .card__body {
+  height: calc(1920px - 760px);
+}
+
+/* The clip, cover-fit into the hero rect and dissolved at the edge that meets
+   the body — the same masks as .card__hero-img in RecapCard.css. */
+.video-screen__hero-video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+  background: #000;
+}
+.video-screen__hero-video--story {
+  -webkit-mask-image: linear-gradient(to bottom, #000 48%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 48%, transparent 100%);
+}
+.video-screen__hero-video--feed {
+  -webkit-mask-image: linear-gradient(to right, #000 52%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 52%, transparent 100%);
+}
+
+/* Play/pause hit area over the hero region, in screen space so the disc is a real 40px. */
+.video-screen__preview {
+  position: relative;
+  width: 100%;
+}
+.video-screen__hit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 20px 0 0 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.video-screen__hit--story {
+  width: 100%;
+  height: calc(760 / 1920 * 100%);
+}
+.video-screen__hit--feed {
+  width: calc(620 / 1600 * 100%);
+  height: 100%;
+}
+.video-screen__hit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.video-screen__disc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #f3ede2;
+}
+
+.video-screen__status {
+  margin: -4px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--text);
+  text-align: center;
+}
+
+.video-screen__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

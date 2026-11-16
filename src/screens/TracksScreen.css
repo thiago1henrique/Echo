@@ -1,0 +1,59 @@
+.tracks-screen__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+.tracks-screen__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tracks-screen__rank {
+  width: 24px;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--text);
+}
+.tracks-screen__cover {
+  position: relative;
+  display: block;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #3a2a26;
+}
+.tracks-screen__cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.tracks-screen__meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tracks-screen__title {
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.3;
+  color: var(--text-h);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tracks-screen__sub {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

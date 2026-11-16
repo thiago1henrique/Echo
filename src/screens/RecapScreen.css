@@ -1,0 +1,22 @@
+/* Recap sub-screen. The shell supplies the column (.screen-body); this just stacks the controls. */
+
+.recap-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.recap-screen__result {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.recap-screen__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

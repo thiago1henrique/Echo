@@ -1,0 +1,137 @@
+.lyric-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  text-align: left;
+}
+
+/* ---- search results ---- */
+.lyric-screen__results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lyric-screen__results li {
+  border-bottom: 1px solid var(--border);
+}
+.lyric-screen__hit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+.lyric-screen__hit:hover {
+  background: var(--surface);
+}
+.lyric-screen__hit:focus-visible,
+.lyric-screen__line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.lyric-screen__hit-cover {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--surface);
+}
+.lyric-screen__hit-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.lyric-screen__hit-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+.lyric-screen__hit-artist {
+  font-size: 16px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* ---- selected track ---- */
+.lyric-screen__track-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+.lyric-screen__pad {
+  padding-top: 12px;
+}
+.lyric-screen__tip {
+  padding: 12px 0 4px;
+}
+.lyric-screen__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.lyric-screen__line {
+  display: block;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--text-h);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.lyric-screen__line.is-picked {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ---- style + preview + actions ---- */
+.lyric-screen__style {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.lyric-screen__section-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+/* Six labels don't fit a phone row: the pill keeps a minimum width and scrolls. */
+.lyric-screen__styles {
+  margin-bottom: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lyric-screen__styles::-webkit-scrollbar {
+  display: none;
+}
+.lyric-screen__seg {
+  min-width: 540px;
+}
+.lyric-screen__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+}

@@ -1,0 +1,195 @@
+/* Descobrir — loose content on the page background (no card chrome), as on Android. */
+
+.discover {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.discover__row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.discover__cover {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+}
+.discover__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.discover__meta > * {
+  margin: 0;
+}
+.discover__album {
+  font-family: var(--heading);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.15;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+.discover__artist {
+  font-family: var(--heading);
+  font-weight: 400;
+  font-size: 16px;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+.discover__info {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.discover__divider {
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--border);
+}
+
+.discover__desc-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.discover__desc-label {
+  font-size: 11px;
+  color: var(--text);
+}
+.discover__desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-h);
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.discover__desc--open {
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+.discover__more {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.discover__more:hover {
+  text-decoration: underline;
+}
+.discover__more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.discover__seed,
+.discover__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+.discover__seed {
+  font-weight: 500;
+}
+
+.discover__related-title {
+  margin: 0;
+  padding-top: 12px;
+  font-family: var(--heading);
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--text-h);
+}
+.discover__related {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.discover__related::-webkit-scrollbar {
+  display: none;
+}
+.discover__item {
+  flex: none;
+  width: 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scroll-snap-align: start;
+}
+.discover__item-cover {
+  display: block;
+  width: 132px;
+  height: 132px;
+  border-radius: 14px;
+  background: var(--surface);
+  object-fit: cover;
+}
+.discover__item-album,
+.discover__item-artist {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.discover__item-album {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+.discover__item-artist {
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* ---- skeleton ---- */
+@keyframes discover-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.discover__sk {
+  background: var(--border);
+  animation: discover-pulse 1.4s ease-in-out infinite;
+}
+.discover__sk-line {
+  display: block;
+  width: 100%;
+  height: 14px;
+  border-radius: 6px;
+}
+.discover__lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .discover__sk {
+    animation: none;
+  }
+}
