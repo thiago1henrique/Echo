@@ -274,7 +274,7 @@
 }
 .cs-hero__ghost {
   position: absolute;
-  top: -70px;
+  top: 40px; /* pushed down so it clears the chip on the top-right */
   right: 8px;
   font-family: var(--col-display);
   font-weight: 800;
@@ -290,7 +290,8 @@
 .cs-hero__chip {
   position: absolute;
   top: 36px;
-  left: 36px;
+  /* right side: the story's username sticker sits top-left */
+  right: 36px;
   padding: 14px 26px;
   border-radius: 28px;
   border: 2px solid rgba(243, 237, 226, 0.5);
@@ -408,7 +409,7 @@
 .cs-mural__brand {
   position: absolute;
   top: 64px;
-  left: 64px;
+  right: 64px;
   color: var(--col-accent);
 }
 .cs-mural__text {
