@@ -198,9 +198,9 @@ export function RecapScreen({ ctx }: { ctx: ScreenCtx }) {
   const fileName = `echo-recap-${ctx.fileKey}`
   const error = exportError ?? ctx.recapError
 
-  const renderCard = (r: Recap, ref?: Ref<HTMLDivElement>, live?: Anim) => {
-    if (!isStory) return <RecapCard ref={ref} recap={r} variant="feed" verse={verse} />
-    return storyCard(template, r, ref, live, verse)
+  const renderCard = (r: Recap, live?: Anim) => {
+    if (!isStory) return <RecapCard recap={r} variant="feed" verse={verse} />
+    return storyCard(template, r, undefined, live, verse)
   }
 
   const capturePng = async (): Promise<Blob> => {
@@ -280,9 +280,12 @@ export function RecapScreen({ ctx }: { ctx: ScreenCtx }) {
       {recap && (
         <div className="recap-screen__result">
           <ScaledPreview width={SIZE[format].width} height={SIZE[format].height}>
-            {renderCard(recap, undefined, anim)}
+            {renderCard(recap, anim)}
           </ScaledPreview>
-          <Offscreen>{renderCard(recap, captureRef)}</Offscreen>
+          <Offscreen>
+            {/* the card has a fixed pixel size, so this wrapper is exactly the capture area */}
+            <div ref={captureRef}>{renderCard(recap)}</div>
+          </Offscreen>
 
           <div className="recap-screen__actions">
             <SecondaryButton disabled={exporting} onClick={savePng}>
