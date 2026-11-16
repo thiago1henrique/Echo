@@ -36,6 +36,7 @@ const ALLOWED_METHODS = new Set([
   'user.gettoptracks',
   'user.gettopalbums',
   'user.getrecenttracks',
+  'user.getinfo',
   'artist.getsimilar',
   'artist.gettopalbums',
   'artist.getinfo',

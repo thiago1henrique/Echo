@@ -25,9 +25,19 @@ export interface AlbumRecommendation {
   image?: string
   /** The user's own top artist that led to this pick, shown as the "why". */
   seedArtist: string
+  /** "Você pode gostar também": best album of up to 5 other similar artists.
+   *  Optional so picks cached before this field existed stay valid. */
+  related?: RelatedAlbum[]
 }
 
-class RecommendError extends Error {}
+export interface RelatedAlbum {
+  album: string
+  artist: string
+  image?: string
+}
+
+/** User-facing failure (empty history, no similar artists…): its message is shown as-is. */
+export class RecommendError extends Error {}
 
 /** djb2 string hash — deterministic across devices/browsers, unlike Math.random(). */
 function stableSeed(input: string): number {
@@ -73,20 +83,45 @@ export async function fetchRecommendation(
   if (!user) throw new RecommendError('Informe seu usuário do Last.fm.')
 
   const topArtists = await getTopArtists(user, 'month', 10)
+  return recommendFromSeeds(
+    topArtists.map((a) => a.name),
+    user,
+    slot,
+  )
+}
+
+/**
+ * Same deterministic pick, starting from an explicit list of artists instead of
+ * a Last.fm account (the Spotify flow passes its top artists, `key` =
+ * `spotify:${profileId}`). The seed is djb2(key.lower + '|' + slot) % n.
+ */
+export function fetchRecommendationFromSeeds(
+  seedArtists: string[],
+  key: string,
+  slot: string = slotKey(),
+): Promise<AlbumRecommendation> {
+  return recommendFromSeeds(seedArtists, key, slot)
+}
+
+async function recommendFromSeeds(
+  topArtists: string[],
+  seedKey: string,
+  slot: string,
+): Promise<AlbumRecommendation> {
   if (topArtists.length === 0) {
     throw new RecommendError('Não encontrei artistas suficientes no seu histórico recente.')
   }
-  const known = new Set(topArtists.map((a) => a.name.toLowerCase()))
-  // Deterministic pick from user + day-part slot (not Math.random()) so the
+  const known = new Set(topArtists.map((a) => a.toLowerCase()))
+  // Deterministic pick from key + day-part slot (not Math.random()) so the
   // same account gets the same seed artist on every device/browser, matching
   // the "muda a cada período do dia" promise shown in the UI.
-  const seedIndex = stableSeed(`${user.toLowerCase()}|${slot}`) % topArtists.length
-  const seed = topArtists[seedIndex]
+  const seedIndex = stableSeed(`${seedKey.toLowerCase()}|${slot}`) % topArtists.length
+  const seedName = topArtists[seedIndex]
 
-  const similar = await getSimilarArtists(seed.name, 10)
+  const similar = await getSimilarArtists(seedName, 10)
   const candidate = similar.find((name) => !known.has(name.toLowerCase())) ?? similar[0]
   if (!candidate) {
-    throw new RecommendError(`Não encontrei artistas parecidos com ${seed.name}.`)
+    throw new RecommendError(`Não encontrei artistas parecidos com ${seedName}.`)
   }
 
   const albums = await getArtistTopAlbums(candidate, 5)
@@ -95,17 +130,39 @@ export async function fetchRecommendation(
   }
   const topAlbum = albums.reduce((best, a) => (a.playcount > best.playcount ? a : best))
 
+  // "Você pode gostar também": the best album of up to 5 other similar
+  // artists, ones the user doesn't already listen to first. A failure on any
+  // single artist just drops that item.
+  const others = similar.filter((name) => name !== candidate)
+  const relatedNames = [
+    ...others.filter((n) => !known.has(n.toLowerCase())),
+    ...others.filter((n) => known.has(n.toLowerCase())),
+  ].slice(0, 5)
+  const relatedPromise = Promise.all(
+    relatedNames.map(async (name): Promise<RelatedAlbum | null> => {
+      try {
+        const [best] = await getArtistTopAlbums(name, 1)
+        if (!best) return null
+        return { album: best.name, artist: best.artist || name, image: proxied(best.lfmImage, 300) }
+      } catch {
+        return null
+      }
+    }),
+  )
+
   // Artist info/tags are fetched alongside the album's own — they back up
   // both the description (plenty of albums outside the mainstream catalog
   // have no wiki entry of their own) and the genre.
-  const [info, artistInfo, albumGenre, artistGenre, year] = await Promise.all([
+  const [info, artistInfo, albumGenre, artistGenre, year, relatedRaw] = await Promise.all([
     getAlbumInfo(candidate, topAlbum.name),
     getArtistInfo(candidate),
     getAlbumGenre(candidate, topAlbum.name),
     getArtistGenre(candidate),
     fetchAlbumReleaseYear(candidate, topAlbum.name),
+    relatedPromise,
   ])
   const image = await toDataUrl(proxied(topAlbum.lfmImage ?? info.lfmImage, 500))
+  const related = relatedRaw.filter((r): r is RelatedAlbum => r !== null)
 
   const description = info.summary ?? artistInfo.summary
   const descriptionIsArtist = !info.summary && !!artistInfo.summary
@@ -123,7 +180,8 @@ export async function fetchRecommendation(
     description,
     descriptionIsArtist,
     image,
-    seedArtist: seed.name,
+    seedArtist: seedName,
+    related,
   }
 }
 
@@ -134,7 +192,7 @@ export async function fetchRecommendation(
 // Bumped whenever AlbumRecommendation's shape changes (e.g. adding `genre`) or
 // its content source changes (e.g. adding `lang=pt` to the Last.fm calls) so
 // stale entries don't get served back until the next day-part boundary.
-const CACHE_PREFIX = 'echo_recommend_v3_'
+const CACHE_PREFIX = 'echo_recommend_v4_'
 
 interface CachedRecommendation {
   slot: string

@@ -325,6 +325,43 @@ export async function fetchTopAlbums(
   }))
 }
 
+interface UserInfoResp {
+  user?: { image?: LfmImage[] }
+}
+
+/** The user's Last.fm profile photo (undefined when they never set one). */
+export async function fetchUserAvatar(userRaw: string): Promise<string | undefined> {
+  const user = userRaw.trim()
+  if (!user) return undefined
+  const data = await call<UserInfoResp>({ method: 'user.getinfo', user })
+  const img = pickImage(data.user?.image)
+  return img && !img.includes(LFM_STAR_PLACEHOLDER) ? img : undefined
+}
+
+/**
+ * Full top-tracks list for the "Top músicas" screen. Covers are Deezer lookups
+ * (Last.fm's own track art is a placeholder now), best-effort: a miss just
+ * leaves that row without a thumbnail.
+ */
+export async function fetchTopTracksList(
+  userRaw: string,
+  period: Period,
+  limit = 30,
+): Promise<TrackStat[]> {
+  const user = userRaw.trim()
+  if (!user) throw new LastfmError('Informe seu usuário do Last.fm.')
+  const tracks = (await getTopTracks(user, period, limit)).slice(0, limit)
+  const covers = await Promise.all(
+    tracks.map((t) => fetchTrackCover(t.artist?.name ?? '', t.name).catch(() => undefined)),
+  )
+  return tracks.map((t, i) => ({
+    name: t.name,
+    artist: t.artist?.name ?? '',
+    playcount: Number(t.playcount) || 0,
+    image: proxied(covers[i], 200),
+  }))
+}
+
 /** Names of artists Last.fm considers similar to `artist`, most similar first. */
 export async function getSimilarArtists(artist: string, limit: number): Promise<string[]> {
   const data = await call<SimilarArtistsResp>({
