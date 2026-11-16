@@ -1,8 +1,7 @@
 /* Album-cover collage. Rendered at exact pixel sizes for 1:1 PNG export.
    Two formats: square (1080×1080, the bare grid) and story (1080×1920, the grid
-   framed with a header/footer for Instagram's 9:16). The caption style mirrors
-   tapmusic — small mono text top-left over each cover, legible via a shadow +
-   a faint top scrim. */
+   framed with a header/footer for Instagram's 9:16). Always dark, regardless of
+   the app theme. The accent (--col-accent) is set inline from the source. */
 
 .collage {
   --col-bg: #131010;
@@ -24,17 +23,19 @@
 .collage *::after {
   box-sizing: border-box;
 }
-.app[data-source='spotify'] .collage {
-  --col-accent: #1ed760;
-}
 
 /* ── Square: the bare grid, edge to edge ─────────────────────────────────── */
 .collage--square {
   width: 1080px;
   height: 1080px;
+  background: #0d0b0a;
+}
+.collage--square .collage__grid {
+  width: 100%;
+  height: 100%;
 }
 
-/* ── Story: grid matted on a dark sleeve, header + footer to fill 9:16 ────── */
+/* ── Story: header, tall grid, footer ────────────────────────────────────── */
 .collage--story {
   width: 1080px;
   height: 1920px;
@@ -42,82 +43,94 @@
   flex-direction: column;
   gap: 44px;
   padding: 72px 32px 60px;
-  background: linear-gradient(165deg, var(--col-bg2), var(--col-bg));
+  background: linear-gradient(180deg, var(--col-bg2), var(--col-bg));
 }
-/* The grid stretches to fill everything between the header and footer, so the
-   collage fills the 9:16 frame instead of floating as a small square. Cells go
-   slightly portrait and the covers crop (object-fit: cover) to fill them. */
+/* The grid fills everything between header and footer, so cells come out taller
+   than wide and the covers crop (object-fit: cover). */
 .collage--story .collage__grid-wrap {
-  flex: 1 1 auto;
-  width: 100%;
+  position: relative;
+  flex: 1 1 0;
   min-height: 0;
   border-radius: 10px;
   overflow: hidden;
   box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.75);
 }
+.collage--story .collage__grid {
+  position: absolute;
+  inset: 0;
+}
 
 .collage__head {
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 14px;
+  text-align: right;
 }
 .collage__eyebrow {
   font-family: var(--col-mono);
   font-size: 30px;
-  letter-spacing: 0.14em;
+  line-height: 1.2;
+  letter-spacing: 4.2px;
   text-transform: uppercase;
   color: var(--col-accent);
 }
 .collage__handle {
+  max-width: 100%;
   font-family: var(--col-display);
   font-weight: 700;
   font-size: 76px;
-  line-height: 0.95;
+  line-height: 72.2px;
+  text-align: right;
   color: var(--col-text);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 .collage__foot {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   justify-content: space-between;
+  gap: 24px;
 }
 .collage__brand {
   display: inline-flex;
   align-items: center;
+  flex: none;
   gap: 18px;
   font-family: var(--col-display);
   font-weight: 800;
   font-size: 52px;
-  letter-spacing: -0.01em;
+  line-height: 1;
+  letter-spacing: -0.52px;
   color: var(--col-text);
 }
-/* The Echo megaphone mark (same glyph as the favicon), sized to the wordmark. */
-.collage__mark {
-  height: 0.94em;
-  width: auto;
-  flex-shrink: 0;
+.collage__brand svg {
+  color: var(--col-accent);
+  flex: none;
 }
 .collage__foot-meta {
+  min-width: 0;
   font-family: var(--col-mono);
   font-size: 26px;
-  letter-spacing: 0.08em;
+  line-height: 1.3;
+  letter-spacing: 2.08px;
   color: var(--col-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* ── The grid itself ─────────────────────────────────────────────────────── */
+/* ── The grid itself: always N×N equal cells, no gap ─────────────────────── */
 .collage__grid {
   display: grid;
-  width: 100%;
-  height: 100%;
 }
 .collage__cell {
   position: relative;
   overflow: hidden;
   background: #0d0b0a;
-}
-/* Square format keeps true 1:1 cells; story lets the grid rows drive the height
-   so the collage fills the taller 9:16 canvas. */
-.collage--square .collage__cell {
-  aspect-ratio: 1 / 1;
 }
 .collage__cover {
   position: absolute;
@@ -127,77 +140,495 @@
   object-fit: cover;
   display: block;
 }
-/* Covers appear solid — no fade-in. In a dense grid the staggered per-image
-   fade reads as unwanted motion, and a solid cover also guarantees the PNG
-   export never catches one mid-transition (opacity < 1). */
+/* Covers appear solid — no fade-in, so a PNG export never catches a cover
+   mid-transition and a dense grid doesn't flicker. */
 .collage__cover.fade-img {
   opacity: 1;
   transition: none;
 }
 .collage__cover--empty {
-  background: repeating-linear-gradient(
-    -45deg,
-    #1a1512,
-    #1a1512 12px,
-    #221a15 12px,
-    #221a15 24px
-  );
+  background: repeating-linear-gradient(-45deg, #1a1512 0 12px, #221a15 12px 24px);
 }
 
-/* Caption: top-left, mono, over a faint scrim so it stays legible on both dark
-   and light covers. Font scales down as the grid gets denser (per data-size). */
+/* Caption: bottom of the cell over a transparent → black 85% scrim. Sizes come
+   from the card (--cap-*), derived from the cell width. */
 .collage__caption {
   position: absolute;
-  top: 0;
   left: 0;
   right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
-  padding: 10px 12px;
-  line-height: 1.18;
+  padding: calc(var(--cap-pad) * 2.5) var(--cap-pad) var(--cap-pad);
   font-family: var(--col-mono);
+  line-height: 1.25;
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.85));
   pointer-events: none;
 }
-.collage__artist {
-  font-weight: 700;
-}
-.collage__album,
-.collage__plays {
-  font-weight: 400;
-}
-.collage__plays {
-  color: #e8e2d6;
-}
-
-/* Per-density typography + padding. Cells shrink with N, so the caption text and
-   scrim shrink with them; a 10×10 barely fits a line, so it drops the scrim. */
-.collage__grid[data-size='3'] .collage__caption {
-  font-size: 19px;
-  padding: 14px 16px;
-}
-.collage__grid[data-size='4'] .collage__caption {
-  font-size: 15px;
-  padding: 11px 13px;
-}
-.collage__grid[data-size='5'] .collage__caption {
-  font-size: 12px;
-  padding: 9px 10px;
-}
-.collage__grid[data-size='10'] .collage__caption {
-  font-size: 7px;
-  padding: 4px 5px;
-  line-height: 1.1;
-  background: none;
-}
-
-/* Truncate over-long titles so a caption never spills past its cover. */
 .collage__artist,
 .collage__album {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
+}
+.collage__artist {
+  font-size: var(--cap-artist);
+  font-weight: 700;
+}
+.collage__album {
+  font-size: var(--cap-album);
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* ═══ More layouts: destaque · mural · retrato · ranking · painel ═══════════
+   Same world as the poster (warm near-black, cream type, source accent), but each
+   one is a different composition, not a re-skin. All sizes are export pixels. */
+
+.collage {
+  --col-line: #2a221b;
+  --col-dim: #70665c;
+}
+.cs-empty {
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(-45deg, #1a1512 0 12px, #221a15 12px 24px);
+}
+.cs-meta {
+  font-family: var(--col-mono);
+  font-size: 26px;
+  line-height: 1.3;
+  letter-spacing: 2.08px;
+  color: var(--col-muted);
+}
+.cs-handle {
+  font-family: var(--col-mono);
+  font-size: 28px;
+  letter-spacing: 1px;
+  color: var(--col-muted);
+}
+.cs-label {
+  font-family: var(--col-mono);
+  font-size: 24px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--col-muted);
+}
+.cs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.cs-bar--title {
+  align-items: flex-end;
+}
+.cs-titleblock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.cs-handle--big {
+  font-family: var(--col-display);
+  font-weight: 800;
+  font-size: 68px;
+  line-height: 1;
+  letter-spacing: -1px;
+  color: var(--col-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-meta--foot {
+  align-self: flex-start;
+}
+
+/* ── Destaque (1080×1920) ────────────────────────────────────────────────── */
+.collage--destaque {
+  width: 1080px;
+  height: 1920px;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  padding: 72px 48px 60px;
+  background: linear-gradient(180deg, var(--col-bg2), var(--col-bg));
+}
+.cs-hero {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  border-radius: 36px;
+  overflow: hidden;
+  background: #0d0b0a;
+  box-shadow: 0 40px 80px -40px rgba(0, 0, 0, 0.8);
+}
+.cs-hero__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cs-hero__ghost {
+  position: absolute;
+  top: -70px;
+  right: 8px;
+  font-family: var(--col-display);
+  font-weight: 800;
+  font-size: 560px;
+  line-height: 1;
+  color: rgba(243, 237, 226, 0.16);
+}
+.cs-hero__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(19, 16, 16, 0) 38%, rgba(19, 16, 16, 0.92));
+}
+.cs-hero__chip {
+  position: absolute;
+  top: 36px;
+  left: 36px;
+  padding: 14px 26px;
+  border-radius: 28px;
+  border: 2px solid rgba(243, 237, 226, 0.5);
+  font-family: var(--col-mono);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 2px;
+  color: var(--col-text);
+}
+.cs-hero__text {
+  position: absolute;
+  left: 40px;
+  right: 40px;
+  bottom: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cs-hero__title {
+  font-family: var(--col-display);
+  font-weight: 800;
+  font-size: 84px;
+  line-height: 0.98;
+  letter-spacing: -1.5px;
+  color: var(--col-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cs-hero__artist {
+  font-family: var(--col-mono);
+  font-size: 32px;
+  letter-spacing: 1px;
+  color: rgba(243, 237, 226, 0.88);
+}
+.cs-hero__plays {
+  font-family: var(--col-mono);
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--col-accent);
+}
+.cs-next {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.cs-next__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.cs-next__cell {
+  aspect-ratio: 1;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #0d0b0a;
+}
+.cs-next__cell img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── Mural (1080×1920) ───────────────────────────────────────────────────── */
+.collage--mural {
+  width: 1080px;
+  height: 1920px;
+  background: var(--col-bg);
+}
+.cs-wall {
+  position: absolute;
+  top: -260px;
+  left: -230px;
+  width: 1600px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 22px;
+  transform: rotate(-9deg);
+  transform-origin: top left;
+}
+.cs-wall__cell {
+  aspect-ratio: 1;
+  border-radius: 24px;
+  overflow: hidden;
+  background: #0d0b0a;
+  box-shadow: 0 24px 40px -20px rgba(0, 0, 0, 0.7);
+}
+/* alternate columns drop down so the wall reads as a stagger, not a spreadsheet */
+.cs-wall__cell:nth-child(5n + 2),
+.cs-wall__cell:nth-child(5n + 4) {
+  transform: translateY(110px);
+}
+.cs-wall__cell img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cs-fade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(19, 16, 16, 0.55) 0%,
+    rgba(19, 16, 16, 0) 22%,
+    rgba(19, 16, 16, 0.2) 42%,
+    rgba(19, 16, 16, 0.92) 66%,
+    var(--col-bg) 82%
+  );
+}
+.cs-mural__brand {
+  position: absolute;
+  top: 64px;
+  left: 64px;
+  color: var(--col-accent);
+}
+.cs-mural__text {
+  position: absolute;
+  left: 64px;
+  right: 64px;
+  bottom: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.cs-mural__title {
+  font-family: var(--col-display);
+  font-weight: 800;
+  font-size: 176px;
+  line-height: 0.9;
+  letter-spacing: -5px;
+  color: var(--col-text);
+}
+
+/* ── Retrato 4:5 (1080×1350) ─────────────────────────────────────────────── */
+.collage--retrato {
+  width: 1080px;
+  height: 1350px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 56px 48px 52px;
+  background: linear-gradient(180deg, var(--col-bg2), var(--col-bg));
+}
+.cs-square {
+  position: relative;
+  width: 984px;
+  height: 984px;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.75);
+}
+.cs-square .collage__grid {
+  position: absolute;
+  inset: 0;
+}
+
+/* ── Ranking 4:5 (1080×1350) ─────────────────────────────────────────────── */
+.collage--ranking {
+  width: 1080px;
+  height: 1350px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 56px 56px 52px;
+  background: linear-gradient(180deg, var(--col-bg2), var(--col-bg));
+}
+.cs-rank {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cs-rank__row {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  height: 134px;
+  border-top: 2px solid var(--col-line);
+}
+.cs-rank__row:last-child {
+  border-bottom: 2px solid var(--col-line);
+}
+.cs-rank__n {
+  flex: none;
+  width: 70px;
+  font-family: var(--col-display);
+  font-weight: 800;
+  font-size: 66px;
+  line-height: 1;
+  letter-spacing: -2px;
+  color: #4a423b;
+}
+.cs-rank__row.is-first .cs-rank__n {
+  color: var(--col-accent);
+}
+.cs-rank__cover {
+  flex: none;
+  width: 104px;
+  height: 104px;
+  border-radius: 14px;
+  object-fit: cover;
+  overflow: hidden;
+  background: #0d0b0a;
+}
+.cs-rank__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cs-rank__album {
+  font-family: var(--col-display);
+  font-weight: 700;
+  font-size: 40px;
+  line-height: 1.05;
+  color: var(--col-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-rank__row.is-first .cs-rank__album {
+  font-weight: 800;
+}
+.cs-rank__artist {
+  font-family: var(--col-mono);
+  font-size: 22px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--col-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-rank__plays {
+  flex: none;
+  font-family: var(--col-mono);
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: 1px;
+  color: var(--col-text);
+  text-transform: uppercase;
+}
+.cs-rank__row.is-first .cs-rank__plays {
+  color: var(--col-accent);
+}
+
+/* ── Painel 16:9 (1600×900) ──────────────────────────────────────────────── */
+.collage--painel {
+  width: 1600px;
+  height: 900px;
+  display: flex;
+  background: linear-gradient(135deg, var(--col-bg2), var(--col-bg));
+}
+.cs-panel {
+  flex: 0 0 700px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 64px 56px 60px 64px;
+}
+.cs-panel__main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.cs-panel__handle {
+  font-family: var(--col-display);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -2px;
+  color: var(--col-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cs-panel__list li {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  min-width: 0;
+}
+.cs-panel__n {
+  flex: none;
+  width: 34px;
+  font-family: var(--col-display);
+  font-weight: 800;
+  font-size: 34px;
+  color: #4a423b;
+}
+.cs-panel__list li:first-child .cs-panel__n {
+  color: var(--col-accent);
+}
+.cs-panel__name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--col-display);
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.1;
+  color: var(--col-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-panel__name em {
+  font-style: normal;
+  font-family: var(--col-mono);
+  font-weight: 400;
+  font-size: 20px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--col-muted);
+}
+.cs-panel__grid {
+  position: relative;
+  flex: 0 0 900px;
+  width: 900px;
+  height: 900px;
+}
+.cs-panel__grid .collage__grid {
+  position: absolute;
+  inset: 0;
 }

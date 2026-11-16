@@ -1,6 +1,7 @@
 import { forwardRef } from 'react'
 import type { Recap } from '../types'
 import { periodLabel, SOURCE_LABEL } from '../types'
+import type { LyricQuote } from '../lib/screenCtx'
 import { fmt, minutesLabel, plays } from '../lib/format'
 import { FadeImg, HeroVideo } from './cardMedia'
 import './RecapCard.css'
@@ -14,6 +15,12 @@ interface Props {
   quote?: string
   /** Name of the song the quote is from. */
   quoteSong?: string
+  /**
+   * Lyric verse picked with the "Verso do card" picker, shown as the Android
+   * QuoteBlock (cover + title + "artista · álbum" + “verso”). Takes precedence
+   * over `quote`/`quoteSong`. `coverUrl` should already be a data URL for export.
+   */
+  verse?: LyricQuote
   /** Object URL of an uploaded video to show in the hero. */
   videoUrl?: string
   /** Start (s) of the shown clip segment. */
@@ -36,7 +43,7 @@ interface Props {
  */
 export const RecapCard = forwardRef<HTMLDivElement, Props>(
   (
-    { recap, variant, quote, quoteSong, videoUrl, videoStart = 0, videoDuration = 15, mode = 'normal', paused = false },
+    { recap, variant, quote, quoteSong, verse, videoUrl, videoStart = 0, videoDuration = 15, mode = 'normal', paused = false },
     ref,
   ) => {
   const { minutes, hours } = minutesLabel(recap.minutes ?? 0)
@@ -122,7 +129,18 @@ export const RecapCard = forwardRef<HTMLDivElement, Props>(
         </div>
 
         <div className="card__quote">
-          {quote && (
+          {verse ? (
+            <div className="card__verse">
+              <span className="card__verse-cover">{verse.coverUrl ? <img src={verse.coverUrl} alt="" /> : null}</span>
+              <span className="card__verse-text">
+                <span className="card__verse-title">{verse.trackTitle}</span>
+                {(verse.artist || verse.album) && (
+                  <span className="card__verse-meta">{[verse.artist, verse.album].filter(Boolean).join(' · ')}</span>
+                )}
+                <span className="card__verse-line">“{verse.text}”</span>
+              </span>
+            </div>
+          ) : quote && (
             <blockquote className="card__quote-text">
               <span className="card__quote-mark">“</span>
               <span className="card__quote-lines" data-size={quoteSize}>

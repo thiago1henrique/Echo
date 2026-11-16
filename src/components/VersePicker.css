@@ -1,0 +1,153 @@
+.verse-picker {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+}
+.verse-picker__title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+.verse-picker__search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- chosen verse ---- */
+.verse-picker__chosen {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.verse-picker__chosen-cover {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--bg);
+}
+.verse-picker__chosen-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.verse-picker__chosen-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+.verse-picker__chosen-meta {
+  font-size: 14px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.verse-picker__chosen-quote {
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+.verse-picker__swap {
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  cursor: pointer;
+}
+.verse-picker__swap:focus-visible,
+.verse-picker__hit:focus-visible,
+.verse-picker__line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- results ---- */
+.verse-picker__results,
+.verse-picker__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.verse-picker__hit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+.verse-picker__hit:hover {
+  background: var(--surface);
+}
+.verse-picker__hit-cover {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface);
+}
+.verse-picker__hit-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.verse-picker__hit-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+.verse-picker__hit-artist {
+  font-size: 14px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.verse-picker__spinner {
+  margin-top: 4px;
+}
+
+/* ---- lyric lines ---- */
+.verse-picker__lines {
+  height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.verse-picker__line {
+  display: block;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--text-h);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.verse-picker__line:hover {
+  color: var(--accent);
+}

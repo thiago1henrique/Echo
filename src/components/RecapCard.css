@@ -559,3 +559,102 @@ video.card__hero-img {
   margin-top: 16px;
   font-size: 20px;
 }
+
+/* Spotify recap: keep the card's own accent independent of the page's [data-source]. */
+.card--spotify {
+  --c-accent: #1ed760;
+}
+
+/* ---- Verse block (Android QuoteBlock): cover + title + "artista · álbum" + “verso” ---- */
+.card__verse {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: var(--c-bg2);
+}
+.card__verse-cover {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  background: var(--c-bg);
+}
+.card__verse-cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.card__verse-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.card__verse-title {
+  font-family: var(--c-display);
+  font-weight: 700;
+  color: var(--c-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card__verse-meta {
+  font-family: var(--c-mono);
+  color: var(--c-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card__verse-line {
+  font-family: var(--c-display);
+  font-weight: 600;
+  color: var(--c-text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.card--story .card__verse {
+  gap: 28px;
+  padding: 24px 32px;
+  border-radius: 22px;
+}
+.card--story .card__verse-cover {
+  width: 120px;
+  height: 120px;
+  border-radius: 16px;
+}
+.card--story .card__verse-title {
+  font-size: 30px;
+}
+.card--story .card__verse-meta {
+  font-size: 20px;
+}
+.card--story .card__verse-line {
+  margin-top: 10px;
+  font-size: 32px;
+  line-height: 1.25;
+}
+.card--feed .card__verse {
+  gap: 20px;
+  padding: 18px 24px;
+  border-radius: 16px;
+}
+.card--feed .card__verse-cover {
+  width: 88px;
+  height: 88px;
+  border-radius: 12px;
+}
+.card--feed .card__verse-title {
+  font-size: 24px;
+}
+.card--feed .card__verse-meta {
+  font-size: 16px;
+}
+.card--feed .card__verse-line {
+  margin-top: 8px;
+  font-size: 24px;
+  line-height: 1.25;
+}
