@@ -1,0 +1,357 @@
+/* Shared controls for the sub-screens (ported from Android EchoComponents). */
+
+/* ---- segmented control ---- */
+.ui-seg {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 40px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.ui-seg__slider {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / var(--n));
+  border-radius: 999px;
+  background: var(--accent);
+  transform: translateX(calc(var(--i) * 100%));
+  transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ui-seg__opt {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  text-align: center;
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+.ui-seg__opt.is-active {
+  color: #fff;
+}
+/* Many options (e.g. the 6 lyric styles): let the pill scroll instead of squeezing labels. */
+.ui-seg--scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ui-seg--scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---- buttons ---- */
+.ui-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 24px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  text-align: center;
+  transition: transform 0.08s, filter 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.ui-btn:active:not(:disabled) {
+  transform: scale(0.99);
+}
+.ui-btn:disabled {
+  cursor: default;
+  opacity: 0.4 !important;
+}
+.ui-btn--primary {
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+}
+.ui-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.ui-btn--secondary {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-h);
+}
+.ui-btn--secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.ui-spinner {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2.5px solid rgb(255 255 255 / 0.35);
+  border-top-color: #fff;
+  animation: ui-spin 0.8s linear infinite;
+}
+.ui-spinner--ink {
+  border-color: color-mix(in srgb, var(--text-h) 25%, transparent);
+  border-top-color: var(--text-h);
+}
+@keyframes ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- field ---- */
+.ui-field {
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ui-field::placeholder {
+  color: var(--text);
+  opacity: 0.7;
+}
+.ui-field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+/* ---- text ---- */
+.ui-error {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--danger);
+  text-align: left;
+}
+.ui-error--center {
+  text-align: center;
+}
+.ui-hint {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  text-align: left;
+}
+.ui-mono-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text);
+  text-align: left;
+}
+
+/* ---- toast ---- */
+.ui-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 80;
+  max-width: calc(100vw - 40px);
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: var(--text-h);
+  color: var(--bg);
+  font-size: 14px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.3);
+  transform: translateX(-50%);
+  animation: ui-toast-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes ui-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* ---- scaled preview ---- */
+.ui-preview {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #0d0b14;
+}
+.ui-preview__inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+.ui-offscreen {
+  position: absolute;
+  left: -100000px;
+  top: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-seg__slider,
+  .ui-toast {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* ---- model picker (thumbnail cards) ---- */
+.ui-model {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.ui-model__row {
+  display: flex;
+  gap: 12px;
+  /* room for the selected outline's glow, which overflow would otherwise clip */
+  margin: -4px;
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ui-model__row::-webkit-scrollbar {
+  display: none;
+}
+.ui-model__item {
+  appearance: none;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+.ui-model__thumb {
+  position: relative;
+  display: block;
+  height: var(--h);
+  aspect-ratio: var(--ar);
+  overflow: hidden;
+  border-radius: 12px;
+  background: #0d0b14;
+  box-shadow: 0 0 0 1px var(--border);
+  opacity: 0.7;
+  transition:
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
+}
+.ui-model__item:hover .ui-model__thumb {
+  opacity: 0.95;
+}
+.ui-model__item.is-active .ui-model__thumb {
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.ui-model__item:active .ui-model__thumb {
+  transform: scale(0.98);
+}
+.ui-model__item:focus-visible .ui-model__thumb {
+  box-shadow: 0 0 0 3px var(--text-h);
+}
+.ui-model__label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text);
+}
+.ui-model__item.is-active .ui-model__label {
+  font-weight: 700;
+  color: var(--text-h);
+}
+.ui-model__scaled.ui-preview {
+  position: absolute;
+  inset: 0;
+  height: 100% !important;
+  border-radius: 0;
+  background: transparent;
+}
+/* placeholder shown before there is any data to thumbnail */
+.ui-model__ph {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(-45deg, #1a1512 0 8px, #221a15 8px 16px);
+}
+
+/* mouse-draggable rows (see lib/useDragScroll) */
+@media (hover: hover) and (pointer: fine) {
+  .ui-model__row,
+  .discover__related {
+    cursor: grab;
+  }
+}
+.is-dragging {
+  cursor: grabbing !important;
+  user-select: none;
+  scroll-snap-type: none !important;
+}
+.is-dragging * {
+  pointer-events: none;
+}
+
+.ui-model__sub {
+  margin-top: -5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.8;
+}
+
+/* desktop: a slim visible scrollbar so it is obvious the row scrolls */
+@media (hover: hover) and (pointer: fine) {
+  .ui-model__row,
+  .discover__related {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text) 45%, transparent) transparent;
+    padding-bottom: 10px;
+  }
+  .ui-model__row::-webkit-scrollbar,
+  .discover__related::-webkit-scrollbar {
+    display: block;
+    height: 6px;
+  }
+  .ui-model__row::-webkit-scrollbar-thumb,
+  .discover__related::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--text) 45%, transparent);
+  }
+}
